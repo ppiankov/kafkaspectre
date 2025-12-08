@@ -1,0 +1,50 @@
+# Binaries
+bin/
+kafkaspectre
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Generated reports and cleanup lists
+report/
+*-report/
+*-report.txt
+*-report.json
+output/
+*.json
+*del*.txt
+cleanup*.txt
+
+# Secrets and configs
+*.kubeconfig
+kubeconfig-*
+.env
+*.pem
+*.key
+*.crt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
