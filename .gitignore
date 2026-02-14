@@ -42,6 +42,8 @@ kubeconfig-*
 *.key
 *.crt
 
+# Context snapshots
+
 # OS
 .DS_Store
 Thumbs.db
