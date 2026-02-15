@@ -101,6 +101,180 @@
 
 ---
 
+---
+
+## Phase 2: Hardening
+
+---
+
+## WO-07: Structured logging (slog)
+
+**Goal:** Replace ad-hoc stderr writes with `log/slog`.
+
+### Steps
+1. Create `internal/logging/logging.go` — `Init(verbose bool)`
+2. Replace fmt.Fprintf(stderr) with slog.Debug/Info/Warn
+3. `--verbose` maps to LevelDebug, default LevelWarn
+4. Structured fields: topic count, partition count, consumer group count, duration
+
+### Acceptance
+- Silent by default
+- `make test` passes with -race
+
+---
+
+## WO-08: Connection resilience
+
+**Goal:** Transient Kafka broker failures retry, auth failures fail fast.
+
+### Steps
+1. Create `internal/kafka/retry.go` — exponential backoff (max 3 attempts)
+2. Classify: SASL auth failure → fail fast, broker unavailable/timeout → retry
+3. `--timeout` caps total retry window
+
+### Acceptance
+- Broker unavailable retries with backoff
+- SASL failures fail immediately
+- `make test` passes with -race
+
+---
+
+## WO-09: SARIF output
+
+**Goal:** `--output sarif` for GitHub Security tab.
+
+### Steps
+1. Create `internal/reporter/sarif.go` — SARIF 2.1.0 writer
+2. Rule IDs: `kafkaspectre/UNUSED_TOPIC`, `kafkaspectre/HIGH_RISK_TOPIC`, etc.
+3. Severity mapping
+
+### Acceptance
+- Valid SARIF 2.1.0 output
+- `make test` passes with -race
+
+---
+
+## WO-10: Config file (.kafkaspectre.yaml)
+
+**Goal:** Persistent defaults for broker address, auth, exclude patterns.
+
+### Steps
+1. Create `internal/config/config.go` — YAML loader
+2. Fields: bootstrap_servers, auth_mechanism, exclude_topics, exclude_internal, format, timeout
+3. CLI flags override config
+
+### Acceptance
+- Config file auto-loaded
+- `make test` passes with -race
+
+---
+
+## WO-11: Baseline mode
+
+**Goal:** Suppress known findings on repeat runs.
+
+### Steps
+1. Create `internal/baseline/baseline.go` — SHA-256 fingerprints
+2. `--baseline` and `--update-baseline` flags
+
+### Acceptance
+- Second run shows only new findings
+- `make test` passes with -race
+
+---
+
+## Phase 3: Distribution & Adoption
+
+---
+
+## WO-12: Docker image
+
+**Goal:** `docker run kafkaspectre audit --bootstrap-server ...` — zero install.
+
+### Steps
+1. Create `Dockerfile` — multi-stage: Go builder → distroless
+2. Multi-arch (amd64, arm64)
+3. Push to `ghcr.io/ppiankov/kafkaspectre`
+4. `docker-compose.yml` example: kafkaspectre + Kafka for local testing
+
+### Acceptance
+- Image < 20MB, multi-arch
+- `docker run ghcr.io/ppiankov/kafkaspectre version` works
+
+---
+
+## WO-13: Homebrew formula
+
+**Goal:** `brew install ppiankov/tap/kafkaspectre`
+
+### Steps
+1. GoReleaser `brews` section → ppiankov/homebrew-tap
+2. Auto-updates on release
+
+### Acceptance
+- `brew install ppiankov/tap/kafkaspectre` works
+
+---
+
+## WO-14: GitHub Action
+
+**Goal:** `uses: ppiankov/kafkaspectre-action@v1`
+
+### Steps
+1. Composite action repo
+2. Inputs: `bootstrap-server`, `format`, `fail-on`, `args`
+3. Download binary, run, upload SARIF
+
+### Acceptance
+- Action works in workflow
+
+---
+
+## WO-15: First-run experience
+
+**Goal:** Helpful messages for new users.
+
+### Steps
+1. Summary header: broker address, topic count, consumer group count
+2. No findings: "No issues detected. N topics scanned."
+3. Connection banner on verbose
+4. Exit code hints
+
+### Acceptance
+- First run shows helpful summary
+- `make test` passes with -race
+
+---
+
+## WO-16: Standardized output header
+
+**Goal:** Emit `{"tool": "kafkaspectre", "version": "...", "timestamp": "..."}` per spectrehub contract.
+
+### Steps
+1. Add header fields to JSON report struct
+2. Backward compatible
+
+### Acceptance
+- JSON includes tool, version, timestamp
+- spectrehub parses without errors
+
+---
+
+## WO-17: CONTRIBUTING.md
+
+**Goal:** Community contribution guidelines.
+
+### Steps
+1. Prerequisites (Go 1.25+, Kafka for integration tests)
+2. Build/test/lint commands
+3. PR conventions
+4. Architecture overview
+
+### Acceptance
+- CONTRIBUTING.md in repo root
+
+---
+
 ## Non-Goals
 
 - No web UI or dashboard
