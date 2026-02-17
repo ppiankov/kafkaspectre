@@ -1,6 +1,6 @@
 # Binaries
 bin/
-kafkaspectre
+/kafkaspectre
 *.exe
 *.exe~
 *.dll
@@ -51,3 +51,7 @@ Thumbs.db
 
 # Build artifacts
 dist/
+
+# Claude Code
+.claude/
+CLAUDE.local.md

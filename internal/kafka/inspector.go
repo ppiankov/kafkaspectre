@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -148,7 +149,7 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	configs, err := i.admin.DescribeTopicConfigs(ctx, topicNames...)
 	if err != nil {
 		// Non-fatal: continue without configs
-		fmt.Fprintf(os.Stderr, "Warning: failed to fetch topic configs: %v\n", err)
+		slog.Warn("failed to fetch topic configs", "error", err, "topic_count", len(topicNames))
 	} else {
 		for _, config := range configs {
 			if topicInfo, exists := metadata.Topics[config.Name]; exists {
@@ -176,7 +177,7 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 		describedGroups, err := i.admin.DescribeGroups(ctx, groupIDs...)
 		if err != nil {
 			// Non-fatal: continue without consumer group details
-			fmt.Fprintf(os.Stderr, "Warning: failed to describe consumer groups: %v\n", err)
+			slog.Warn("failed to describe consumer groups", "error", err, "consumer_group_count", len(groupIDs))
 		} else {
 			for _, described := range describedGroups.Sorted() {
 				coordinator := int32(-1)
