@@ -25,63 +25,71 @@ func NewAuditTextReporter(w io.Writer, color bool) *AuditTextReporter {
 
 // GenerateAudit produces a human-readable audit report
 func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResult) error {
-	fmt.Fprintf(r.writer, "Kafka Cluster Audit Report\n")
-	fmt.Fprintf(r.writer, "===========================\n\n")
+	var writeErr error
+	writef := func(format string, args ...any) {
+		if writeErr != nil {
+			return
+		}
+		_, writeErr = fmt.Fprintf(r.writer, format, args...)
+	}
+
+	writef("Kafka Cluster Audit Report\n")
+	writef("===========================\n\n")
 
 	// Summary
-	fmt.Fprintf(r.writer, "Summary:\n")
-	fmt.Fprintf(r.writer, "========\n\n")
+	writef("Summary:\n")
+	writef("========\n\n")
 
 	// Cluster info
 	if result.Summary != nil {
-		fmt.Fprintf(r.writer, "Cluster: %s (%d brokers, %d consumer groups)\n\n",
+		writef("Cluster: %s (%d brokers, %d consumer groups)\n\n",
 			result.Summary.ClusterName,
 			result.Summary.TotalBrokers,
 			result.Summary.TotalConsumerGroups)
 
 		// Topic statistics
-		fmt.Fprintf(r.writer, "Topics:\n")
-		fmt.Fprintf(r.writer, "  Total (including internal): %d\n", result.Summary.TotalTopicsIncludingInternal)
-		fmt.Fprintf(r.writer, "  Analyzed:                   %d\n", result.Summary.TotalTopics)
-		fmt.Fprintf(r.writer, "  Active (with consumers):    %d\n", result.Summary.ActiveTopics)
-		fmt.Fprintf(r.writer, "  Unused (no consumers):      %d (%.1f%%)\n",
+		writef("Topics:\n")
+		writef("  Total (including internal): %d\n", result.Summary.TotalTopicsIncludingInternal)
+		writef("  Analyzed:                   %d\n", result.Summary.TotalTopics)
+		writef("  Active (with consumers):    %d\n", result.Summary.ActiveTopics)
+		writef("  Unused (no consumers):      %d (%.1f%%)\n",
 			result.Summary.UnusedTopics,
 			result.Summary.UnusedPercentage)
-		fmt.Fprintf(r.writer, "  Internal (excluded):        %d\n\n", result.Summary.InternalTopics)
+		writef("  Internal (excluded):        %d\n\n", result.Summary.InternalTopics)
 
 		// Partition statistics
-		fmt.Fprintf(r.writer, "Partitions:\n")
-		fmt.Fprintf(r.writer, "  Total:    %d\n", result.Summary.TotalPartitions)
-		fmt.Fprintf(r.writer, "  Active:   %d\n", result.Summary.ActivePartitions)
-		fmt.Fprintf(r.writer, "  Unused:   %d (%.1f%%)\n\n",
+		writef("Partitions:\n")
+		writef("  Total:    %d\n", result.Summary.TotalPartitions)
+		writef("  Active:   %d\n", result.Summary.ActivePartitions)
+		writef("  Unused:   %d (%.1f%%)\n\n",
 			result.Summary.UnusedPartitions,
 			result.Summary.UnusedPartitionsPercent)
 
 		// Risk breakdown
 		if result.Summary.UnusedTopics > 0 {
-			fmt.Fprintf(r.writer, "Risk Breakdown:\n")
-			fmt.Fprintf(r.writer, "  High Risk:   %d topics\n", result.Summary.HighRiskCount)
-			fmt.Fprintf(r.writer, "  Medium Risk: %d topics\n", result.Summary.MediumRiskCount)
-			fmt.Fprintf(r.writer, "  Low Risk:    %d topics\n\n", result.Summary.LowRiskCount)
+			writef("Risk Breakdown:\n")
+			writef("  High Risk:   %d topics\n", result.Summary.HighRiskCount)
+			writef("  Medium Risk: %d topics\n", result.Summary.MediumRiskCount)
+			writef("  Low Risk:    %d topics\n\n", result.Summary.LowRiskCount)
 		}
 
 		// Health score
-		fmt.Fprintf(r.writer, "Cluster Health: %s\n\n", result.Summary.ClusterHealthScore)
+		writef("Cluster Health: %s\n\n", result.Summary.ClusterHealthScore)
 
 		// Potential savings
-		fmt.Fprintf(r.writer, "Potential Savings: %s\n", result.Summary.PotentialSavingsInfo)
+		writef("Potential Savings: %s\n", result.Summary.PotentialSavingsInfo)
 	} else {
-		fmt.Fprintf(r.writer, "  Total Topics:    %d\n", result.TotalTopics)
-		fmt.Fprintf(r.writer, "  Active Topics:   %d (with consumers)\n", result.ActiveCount)
-		fmt.Fprintf(r.writer, "  Unused Topics:   %d (no consumers)\n", result.UnusedCount)
-		fmt.Fprintf(r.writer, "  Internal Topics: %d (excluded from analysis)\n", result.InternalCount)
+		writef("  Total Topics:    %d\n", result.TotalTopics)
+		writef("  Active Topics:   %d (with consumers)\n", result.ActiveCount)
+		writef("  Unused Topics:   %d (no consumers)\n", result.UnusedCount)
+		writef("  Internal Topics: %d (excluded from analysis)\n", result.InternalCount)
 	}
-	fmt.Fprintf(r.writer, "\n")
+	writef("\n")
 
 	// Unused Topics Section
 	if len(result.UnusedTopics) > 0 {
-		fmt.Fprintf(r.writer, "Unused Topics (No Consumer Groups)\n")
-		fmt.Fprintf(r.writer, "===================================\n\n")
+		writef("Unused Topics (No Consumer Groups)\n")
+		writef("===================================\n\n")
 
 		// Sort by risk level then by name
 		sortedUnused := make([]*UnusedTopic, len(result.UnusedTopics))
@@ -94,28 +102,28 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		})
 
 		for _, unused := range sortedUnused {
-			fmt.Fprintf(r.writer, "[UNUSED] %s\n", unused.Name)
-			fmt.Fprintf(r.writer, "  Partitions: %d, Replication: %d\n", unused.Partitions, unused.ReplicationFactor)
+			writef("[UNUSED] %s\n", unused.Name)
+			writef("  Partitions: %d, Replication: %d\n", unused.Partitions, unused.ReplicationFactor)
 
 			// Display key configurations
 			if unused.RetentionHuman != "" {
-				fmt.Fprintf(r.writer, "  Retention: %s\n", unused.RetentionHuman)
+				writef("  Retention: %s\n", unused.RetentionHuman)
 			}
 			if unused.CleanupPolicy != "" {
-				fmt.Fprintf(r.writer, "  Cleanup Policy: %s\n", unused.CleanupPolicy)
+				writef("  Cleanup Policy: %s\n", unused.CleanupPolicy)
 			}
 
-			fmt.Fprintf(r.writer, "  Reason: %s\n", unused.Reason)
-			fmt.Fprintf(r.writer, "  Risk: %s\n", unused.Risk)
-			fmt.Fprintf(r.writer, "  Recommendation: %s\n", unused.Recommendation)
-			fmt.Fprintf(r.writer, "\n")
+			writef("  Reason: %s\n", unused.Reason)
+			writef("  Risk: %s\n", unused.Risk)
+			writef("  Recommendation: %s\n", unused.Recommendation)
+			writef("\n")
 		}
 	}
 
 	// Active Topics Section (Summary)
 	if len(result.ActiveTopics) > 0 {
-		fmt.Fprintf(r.writer, "Active Topics (With Consumer Groups)\n")
-		fmt.Fprintf(r.writer, "=====================================\n\n")
+		writef("Active Topics (With Consumer Groups)\n")
+		writef("=====================================\n\n")
 
 		// Sort by name
 		sortedActive := make([]*ActiveTopic, len(result.ActiveTopics))
@@ -125,48 +133,52 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		})
 
 		for _, active := range sortedActive {
-			fmt.Fprintf(r.writer, "[ACTIVE] %s\n", active.Name)
-			fmt.Fprintf(r.writer, "  Partitions: %d, Replication: %d\n", active.Partitions, active.ReplicationFactor)
-			fmt.Fprintf(r.writer, "  Consumer Groups (%d): ", len(active.ConsumerGroups))
+			writef("[ACTIVE] %s\n", active.Name)
+			writef("  Partitions: %d, Replication: %d\n", active.Partitions, active.ReplicationFactor)
+			writef("  Consumer Groups (%d): ", len(active.ConsumerGroups))
 
 			// Show first 3 consumer groups, then indicate if there are more
 			if len(active.ConsumerGroups) <= 3 {
 				for i, cg := range active.ConsumerGroups {
 					if i > 0 {
-						fmt.Fprintf(r.writer, ", ")
+						writef(", ")
 					}
-					fmt.Fprintf(r.writer, "%s", cg)
+					writef("%s", cg)
 				}
 			} else {
 				for i := 0; i < 3; i++ {
 					if i > 0 {
-						fmt.Fprintf(r.writer, ", ")
+						writef(", ")
 					}
-					fmt.Fprintf(r.writer, "%s", active.ConsumerGroups[i])
+					writef("%s", active.ConsumerGroups[i])
 				}
-				fmt.Fprintf(r.writer, ", ... and %d more", len(active.ConsumerGroups)-3)
+				writef(", ... and %d more", len(active.ConsumerGroups)-3)
 			}
-			fmt.Fprintf(r.writer, "\n\n")
+			writef("\n\n")
 		}
 	}
 
 	// Recommendations
 	if result.UnusedCount > 0 {
-		fmt.Fprintf(r.writer, "Cleanup Recommendations\n")
-		fmt.Fprintf(r.writer, "=======================\n\n")
-		fmt.Fprintf(r.writer, "Found %d unused topics that may be candidates for deletion.\n\n", result.UnusedCount)
-		fmt.Fprintf(r.writer, "Before deleting any topics:\n")
-		fmt.Fprintf(r.writer, "  1. Verify with application owners that topics are truly unused\n")
-		fmt.Fprintf(r.writer, "  2. Check if topics are consumed by external systems not visible here\n")
-		fmt.Fprintf(r.writer, "  3. Consider archiving topic data before deletion\n")
-		fmt.Fprintf(r.writer, "  4. Test in a non-production environment first\n")
-		fmt.Fprintf(r.writer, "\n")
-		fmt.Fprintf(r.writer, "Risk Levels:\n")
-		fmt.Fprintf(r.writer, "  - low:    Safe to delete (small topic, no consumers)\n")
-		fmt.Fprintf(r.writer, "  - medium: Review carefully (larger topic, no consumers)\n")
-		fmt.Fprintf(r.writer, "  - high:   Do not delete without confirmation\n")
+		writef("Cleanup Recommendations\n")
+		writef("=======================\n\n")
+		writef("Found %d unused topics that may be candidates for deletion.\n\n", result.UnusedCount)
+		writef("Before deleting any topics:\n")
+		writef("  1. Verify with application owners that topics are truly unused\n")
+		writef("  2. Check if topics are consumed by external systems not visible here\n")
+		writef("  3. Consider archiving topic data before deletion\n")
+		writef("  4. Test in a non-production environment first\n")
+		writef("\n")
+		writef("Risk Levels:\n")
+		writef("  - low:    Safe to delete (small topic, no consumers)\n")
+		writef("  - medium: Review carefully (larger topic, no consumers)\n")
+		writef("  - high:   Do not delete without confirmation\n")
 	} else {
-		fmt.Fprintf(r.writer, "No unused topics detected. All topics have active consumer groups.\n")
+		writef("No unused topics detected. All topics have active consumer groups.\n")
+	}
+
+	if writeErr != nil {
+		return writeErr
 	}
 
 	return nil
