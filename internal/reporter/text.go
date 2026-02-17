@@ -26,19 +26,27 @@ func NewTextReporter(w io.Writer, color bool) *TextReporter {
 
 // Generate produces a human-readable text report
 func (r *TextReporter) Generate(ctx context.Context, metadata *kafka.ClusterMetadata) error {
-	fmt.Fprintf(r.writer, "Kafka Cluster Overview\n")
-	fmt.Fprintf(r.writer, "======================\n\n")
+	var writeErr error
+	writef := func(format string, args ...any) {
+		if writeErr != nil {
+			return
+		}
+		_, writeErr = fmt.Fprintf(r.writer, format, args...)
+	}
+
+	writef("Kafka Cluster Overview\n")
+	writef("======================\n\n")
 
 	// Broker information
-	fmt.Fprintf(r.writer, "Brokers: %d\n", len(metadata.Brokers))
+	writef("Brokers: %d\n", len(metadata.Brokers))
 	for _, broker := range metadata.Brokers {
-		fmt.Fprintf(r.writer, "  - Broker %d: %s:%d", broker.ID, broker.Host, broker.Port)
+		writef("  - Broker %d: %s:%d", broker.ID, broker.Host, broker.Port)
 		if broker.Rack != "" {
-			fmt.Fprintf(r.writer, " (rack: %s)", broker.Rack)
+			writef(" (rack: %s)", broker.Rack)
 		}
-		fmt.Fprintf(r.writer, "\n")
+		writef("\n")
 	}
-	fmt.Fprintf(r.writer, "\n")
+	writef("\n")
 
 	// Topic summary
 	totalTopics := len(metadata.Topics)
@@ -53,7 +61,7 @@ func (r *TextReporter) Generate(ctx context.Context, metadata *kafka.ClusterMeta
 		}
 	}
 
-	fmt.Fprintf(r.writer, "Topics: %d total (%d user, %d internal)\n\n", totalTopics, userTopics, internalTopics)
+	writef("Topics: %d total (%d user, %d internal)\n\n", totalTopics, userTopics, internalTopics)
 
 	// List topics (sorted)
 	topicNames := make([]string, 0, len(metadata.Topics))
@@ -62,8 +70,8 @@ func (r *TextReporter) Generate(ctx context.Context, metadata *kafka.ClusterMeta
 	}
 	sort.Strings(topicNames)
 
-	fmt.Fprintf(r.writer, "Topic Details:\n")
-	fmt.Fprintf(r.writer, "==============\n\n")
+	writef("Topic Details:\n")
+	writef("==============\n\n")
 
 	for _, name := range topicNames {
 		topic := metadata.Topics[name]
@@ -71,32 +79,32 @@ func (r *TextReporter) Generate(ctx context.Context, metadata *kafka.ClusterMeta
 			continue // Skip internal topics in detailed view
 		}
 
-		fmt.Fprintf(r.writer, "[Topic] %s\n", topic.Name)
-		fmt.Fprintf(r.writer, "  Partitions: %d\n", topic.Partitions)
-		fmt.Fprintf(r.writer, "  Replication Factor: %d\n", topic.ReplicationFactor)
+		writef("[Topic] %s\n", topic.Name)
+		writef("  Partitions: %d\n", topic.Partitions)
+		writef("  Replication Factor: %d\n", topic.ReplicationFactor)
 
 		// Display key configurations
 		if retention, ok := topic.Config["retention.ms"]; ok {
-			fmt.Fprintf(r.writer, "  Retention: %s ms\n", retention)
+			writef("  Retention: %s ms\n", retention)
 		}
 		if cleanup, ok := topic.Config["cleanup.policy"]; ok {
-			fmt.Fprintf(r.writer, "  Cleanup Policy: %s\n", cleanup)
+			writef("  Cleanup Policy: %s\n", cleanup)
 		}
 
 		// Find consumer groups for this topic
 		consumerGroups := r.findConsumerGroupsForTopic(metadata, name)
 		if len(consumerGroups) > 0 {
-			fmt.Fprintf(r.writer, "  Consumer Groups: %s\n", strings.Join(consumerGroups, ", "))
+			writef("  Consumer Groups: %s\n", strings.Join(consumerGroups, ", "))
 		} else {
-			fmt.Fprintf(r.writer, "  Consumer Groups: none\n")
+			writef("  Consumer Groups: none\n")
 		}
 
-		fmt.Fprintf(r.writer, "\n")
+		writef("\n")
 	}
 
 	// Consumer group summary
-	fmt.Fprintf(r.writer, "Consumer Groups: %d\n", len(metadata.ConsumerGroups))
-	fmt.Fprintf(r.writer, "================\n\n")
+	writef("Consumer Groups: %d\n", len(metadata.ConsumerGroups))
+	writef("================\n\n")
 
 	groupNames := make([]string, 0, len(metadata.ConsumerGroups))
 	for name := range metadata.ConsumerGroups {
@@ -106,10 +114,10 @@ func (r *TextReporter) Generate(ctx context.Context, metadata *kafka.ClusterMeta
 
 	for _, name := range groupNames {
 		group := metadata.ConsumerGroups[name]
-		fmt.Fprintf(r.writer, "[Group] %s\n", group.GroupID)
-		fmt.Fprintf(r.writer, "  State: %s\n", group.State)
-		fmt.Fprintf(r.writer, "  Members: %d\n", group.Members)
-		fmt.Fprintf(r.writer, "  Topics: %s\n", strings.Join(group.Topics, ", "))
+		writef("[Group] %s\n", group.GroupID)
+		writef("  State: %s\n", group.State)
+		writef("  Members: %d\n", group.Members)
+		writef("  Topics: %s\n", strings.Join(group.Topics, ", "))
 
 		// Display lag information
 		if len(group.Lag) > 0 {
@@ -117,23 +125,27 @@ func (r *TextReporter) Generate(ctx context.Context, metadata *kafka.ClusterMeta
 			for _, lag := range group.Lag {
 				totalLag += lag
 			}
-			fmt.Fprintf(r.writer, "  Total Lag: %d messages\n", totalLag)
+			writef("  Total Lag: %d messages\n", totalLag)
 
 			// Show per-topic lag if multiple topics
 			if len(group.Lag) > 1 {
 				for topic, lag := range group.Lag {
 					if lag > 0 {
-						fmt.Fprintf(r.writer, "    - %s: %d\n", topic, lag)
+						writef("    - %s: %d\n", topic, lag)
 					}
 				}
 			}
 		}
 
 		if !group.LastCommit.IsZero() {
-			fmt.Fprintf(r.writer, "  Last Commit: %s\n", group.LastCommit.Format("2006-01-02 15:04:05"))
+			writef("  Last Commit: %s\n", group.LastCommit.Format("2006-01-02 15:04:05"))
 		}
 
-		fmt.Fprintf(r.writer, "\n")
+		writef("\n")
+	}
+
+	if writeErr != nil {
+		return writeErr
 	}
 
 	return nil
