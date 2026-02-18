@@ -33,6 +33,7 @@ func main() {
 
 	if err := newRootCmd().Execute(); err != nil {
 		slog.Error("command failed", "error", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Tip: Use 'kafkaspectre --help' for usage information or consult the documentation for error codes.\n")
 		os.Exit(1)
 	}
 }
@@ -334,12 +335,37 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), kafkaCfg.QueryTimeout)
 	defer cancel()
 
+	slog.Info("connecting to Kafka", "bootstrap_servers", opts.bootstrapServer)
+
 	metadata, err := inspector.FetchMetadata(ctx)
 	if err != nil {
 		return err
 	}
 
 	result := buildAuditResult(metadata, opts.excludeInternal, excludePatterns)
+
+	if output == "text" {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "KafkaSpectre Audit\n")
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Broker: %s\n", opts.bootstrapServer)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Topics: %d (internal excluded: %d)\n", result.Summary.TotalTopics, result.Summary.InternalTopics)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Consumer Groups: %d\n", result.Summary.TotalConsumerGroups)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "--------------------------------------------------\n")
+		if err != nil {
+			return err
+		}
+	}
 
 	var generateErr error
 	switch output {
@@ -358,6 +384,13 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 
 	if generateErr != nil {
 		return generateErr
+	}
+
+	if output == "text" && result.UnusedCount == 0 {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "\nNo issues detected. %d topics scanned.\n", result.Summary.TotalTopics)
+		if err != nil {
+			return err
+		}
 	}
 
 	topicCount, partitionCount := metadataStats(metadata)
@@ -435,6 +468,8 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), kafkaCfg.QueryTimeout)
 	defer cancel()
 
+	slog.Info("connecting to Kafka", "bootstrap_servers", opts.bootstrapServer)
+
 	metadata, err := inspector.FetchMetadata(ctx)
 	if err != nil {
 		return err
@@ -447,6 +482,37 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	}
 
 	result := buildCheckResult(scanResult, metadata, opts.excludeInternal, excludePatterns)
+
+	if output == "text" {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "KafkaSpectre Check\n")
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Broker: %s\n", opts.bootstrapServer)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Repository: %s\n", opts.repo)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Cluster Topics: %d\n", result.Summary.ClusterTopics)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Repository Topics: %d\n", result.Summary.RepoTopics)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Total Consumer Groups: %d\n", len(metadata.ConsumerGroups))
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "--------------------------------------------------\n")
+		if err != nil {
+			return err
+		}
+	}
 
 	var generateErr error
 	switch output {
@@ -465,6 +531,13 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 
 	if generateErr != nil {
 		return generateErr
+	}
+
+	if output == "text" && result.Summary.TotalFindings == 0 {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "\nNo issues detected. %d topics scanned in repository and cluster.\n", result.Summary.RepoTopics+result.Summary.ClusterTopics)
+		if err != nil {
+			return err
+		}
 	}
 
 	topicCount, partitionCount := metadataStats(metadata)
