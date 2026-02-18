@@ -21,24 +21,24 @@ func TestAuditTextReporterGenerateAudit(t *testing.T) {
 			name: "with-summary",
 			result: &AuditResult{
 				Summary: &AuditSummary{
-					ClusterName:                 "cluster-1",
-					TotalBrokers:                2,
-					TotalConsumerGroups:         3,
+					ClusterName:                  "cluster-1",
+					TotalBrokers:                 2,
+					TotalConsumerGroups:          3,
 					TotalTopicsIncludingInternal: 5,
-					TotalTopics:                 4,
-					ActiveTopics:                2,
-					UnusedTopics:                2,
-					InternalTopics:              1,
-					UnusedPercentage:            50.0,
-					TotalPartitions:             10,
-					ActivePartitions:            6,
-					UnusedPartitions:            4,
-					UnusedPartitionsPercent:     40.0,
-					HighRiskCount:               1,
-					MediumRiskCount:             0,
-					LowRiskCount:                1,
-					ClusterHealthScore:          "B",
-					PotentialSavingsInfo:        "none",
+					TotalTopics:                  4,
+					ActiveTopics:                 2,
+					UnusedTopics:                 2,
+					InternalTopics:               1,
+					UnusedPercentage:             50.0,
+					TotalPartitions:              10,
+					ActivePartitions:             6,
+					UnusedPartitions:             4,
+					UnusedPartitionsPercent:      40.0,
+					HighRiskCount:                1,
+					MediumRiskCount:              0,
+					LowRiskCount:                 1,
+					ClusterHealthScore:           "B",
+					PotentialSavingsInfo:         "none",
 				},
 				UnusedTopics: []*UnusedTopic{
 					{
@@ -260,13 +260,17 @@ func TestTextReporterAuditStubs(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "text-reporter-generate-audit",
-			call:    func() error { return NewTextReporter(&bytes.Buffer{}, false).GenerateAudit(context.Background(), &AuditResult{}) },
+			name: "text-reporter-generate-audit",
+			call: func() error {
+				return NewTextReporter(&bytes.Buffer{}, false).GenerateAudit(context.Background(), &AuditResult{})
+			},
 			wantErr: true,
 		},
 		{
-			name:    "audit-text-reporter-generate",
-			call:    func() error { return NewAuditTextReporter(&bytes.Buffer{}, false).Generate(context.Background(), &kafka.ClusterMetadata{}) },
+			name: "audit-text-reporter-generate",
+			call: func() error {
+				return NewAuditTextReporter(&bytes.Buffer{}, false).Generate(context.Background(), &kafka.ClusterMetadata{})
+			},
 			wantErr: true,
 		},
 	}

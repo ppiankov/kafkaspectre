@@ -24,10 +24,10 @@ func NewAuditJSONReporter(w io.Writer, pretty bool) *AuditJSONReporter {
 
 // AuditJSONOutput is the restructured JSON output format
 type AuditJSONOutput struct {
-	Summary          *AuditSummary    `json:"summary"`
-	UnusedTopics     []*UnusedTopic   `json:"unused_topics"`
-	ActiveTopics     []*ActiveTopic   `json:"active_topics,omitempty"`
-	ClusterMetadata  *ClusterMetadata `json:"cluster_metadata"`
+	Summary         *AuditSummary    `json:"summary"`
+	UnusedTopics    []*UnusedTopic   `json:"unused_topics"`
+	ActiveTopics    []*ActiveTopic   `json:"active_topics,omitempty"`
+	ClusterMetadata *ClusterMetadata `json:"cluster_metadata"`
 }
 
 // ClusterMetadata simplified for JSON output

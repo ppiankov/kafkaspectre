@@ -26,8 +26,8 @@ func TestAuditJSONReporterOutput(t *testing.T) {
 	}
 
 	summary := &AuditSummary{
-		ClusterName:        "cluster-1",
-		TotalBrokers:       2,
+		ClusterName:         "cluster-1",
+		TotalBrokers:        2,
 		TotalConsumerGroups: 2,
 	}
 
@@ -64,11 +64,11 @@ func TestAuditJSONReporterOutput(t *testing.T) {
 			buf := &bytes.Buffer{}
 			reporter := NewAuditJSONReporter(buf, tc.pretty)
 			result := &AuditResult{
-				Summary:     summary,
+				Summary:      summary,
 				UnusedTopics: []*UnusedTopic{{Name: "unused-a"}},
 				ActiveTopics: tc.active,
-				ActiveCount: tc.activeCount,
-				Metadata:    metadata,
+				ActiveCount:  tc.activeCount,
+				Metadata:     metadata,
 			}
 
 			if err := reporter.GenerateAudit(context.Background(), result); err != nil {
@@ -159,13 +159,17 @@ func TestJSONReporterStubs(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "json-reporter-generate-audit",
-			call:    func() error { return NewJSONReporter(&bytes.Buffer{}, false).GenerateAudit(context.Background(), &AuditResult{}) },
+			name: "json-reporter-generate-audit",
+			call: func() error {
+				return NewJSONReporter(&bytes.Buffer{}, false).GenerateAudit(context.Background(), &AuditResult{})
+			},
 			wantErr: false,
 		},
 		{
-			name:    "audit-json-reporter-generate",
-			call:    func() error { return NewAuditJSONReporter(&bytes.Buffer{}, false).Generate(context.Background(), &kafka.ClusterMetadata{}) },
+			name: "audit-json-reporter-generate",
+			call: func() error {
+				return NewAuditJSONReporter(&bytes.Buffer{}, false).Generate(context.Background(), &kafka.ClusterMetadata{})
+			},
 			wantErr: false,
 		},
 	}
