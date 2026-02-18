@@ -32,8 +32,7 @@ func main() {
 	logging.Init(false)
 
 	if err := newRootCmd().Execute(); err != nil {
-		slog.Error("command failed", "error", err)
-		_, _ = fmt.Fprintf(os.Stderr, "Tip: Use 'kafkaspectre --help' for usage information or consult the documentation for error codes.\n")
+		slog.Error("command failed", "error", err, "hint", "use 'kafkaspectre --help' for usage information")
 		os.Exit(1)
 	}
 }
