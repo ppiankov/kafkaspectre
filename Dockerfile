@@ -1,31 +1,39 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1
+ARG GO_VERSION=1.22.0
 
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+FROM golang:${GO_VERSION}-alpine AS builder
 
-ARG TARGETOS
-ARG TARGETARCH
-ARG VERSION=dev
-ARG GIT_COMMIT=unknown
-ARG BUILD_DATE=unknown
+WORKDIR /app
 
-WORKDIR /src
-
+# Copy go.mod and go.sum first to leverage Docker cache
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY cmd ./cmd
-COPY internal ./internal
+# Copy the rest of the application source
+COPY . .
 
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath \
-      -ldflags="-s -w -X main.Version=${VERSION} -X main.GitCommit=${GIT_COMMIT} -X main.BuildDate=${BUILD_DATE}" \
-      -o /out/kafkaspectre ./cmd/kafkaspectre
+# Build the kafkaspectre binary
+# Use CGO_ENABLED=0 to create a statically linked binary
+# Use -a -installsuffix cgo to ensure all packages are rebuilt from source without CGO
+# Embed version information using LDFLAGS
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-FROM gcr.io/distroless/static-debian12:nonroot
+RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o /bin/kafkaspectre ./cmd/kafkaspectre
 
-COPY --from=builder /out/kafkaspectre /kafkaspectre
+FROM alpine/git AS git_cloner
+WORKDIR /temp
+# Install git to clone the repo inside the build context to get git information
+RUN apk add --no-cache git
 
-USER nonroot:nonroot
+FROM gcr.io/distroless/static-debian12 AS final
 
-ENTRYPOINT ["/kafkaspectre"]
-CMD ["--help"]
+# Copy the built binary from the builder stage
+COPY --from=builder /bin/kafkaspectre /usr/local/bin/kafkaspectre
+
+# Expose any necessary ports (if applicable for future features)
+# EXPOSE 9092
+
+# Set the entrypoint to the kafkaspectre binary
+ENTRYPOINT ["kafkaspectre"]
