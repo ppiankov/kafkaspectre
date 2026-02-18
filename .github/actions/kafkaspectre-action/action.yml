@@ -1,0 +1,69 @@
+name: 'KafkaSpectre Action'
+description: 'Runs KafkaSpectre to audit Kafka topics and generate reports.'
+inputs:
+  bootstrap-server:
+    description: 'Kafka bootstrap server address (e.g., localhost:9092)'
+    required: true
+  format:
+    description: 'Output format (text, json, sarif)'
+    required: false
+    default: 'sarif'
+  fail-on:
+    description: 'Comma-separated list of risk levels to fail the workflow on (e.g., HIGH,MEDIUM)'
+    required: false
+    default: ''
+  args:
+    description: 'Additional arguments to pass to kafkaspectre'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download kafkaspectre
+      shell: bash
+      run: |
+        # For demonstration, we'll download a pre-built binary.
+        # In a real scenario, you might fetch from a release asset or build it.
+        # This assumes a Linux amd64 binary. Adjust for other OS/arch if needed.
+        # Replace v0.1.1 with the actual release version.
+        BINARY_VERSION="v0.1.1"
+        BINARY_NAME="kafkaspectre"
+        DOWNLOAD_URL="https://github.com/ppiankov/kafkaspectre/releases/download/${BINARY_VERSION}/${BINARY_NAME}_${BINARY_VERSION}_linux_amd64"
+        
+        echo "Downloading KafkaSpectre from ${DOWNLOAD_URL}"
+        curl -L -o ${BINARY_NAME} ${DOWNLOAD_URL}
+        chmod +x ${BINARY_NAME}
+        ./${BINARY_NAME} version
+
+    - name: Run KafkaSpectre Audit
+      shell: bash
+      # Capture output to a file if SARIF is requested, otherwise print to stdout
+      run: |
+        OUTPUT_FILE="kafkaspectre-report"
+        REPORT_FORMAT="${{ inputs.format }}"
+        
+        COMMAND="./kafkaspectre audit \
+          --bootstrap-server ${{ inputs.bootstrap-server }} \
+          --output ${REPORT_FORMAT} \
+          ${{ inputs.args }}"
+        
+        if [ -n "${{ inputs.fail-on }}" ]; then
+          COMMAND="${COMMAND} --fail-on ${{ inputs.fail-on }}"
+        fi
+        
+        if [ "${REPORT_FORMAT}" == "sarif" ]; then
+          COMMAND="${COMMAND} > ${OUTPUT_FILE}.sarif"
+          echo "Running command: ${COMMAND}"
+          ${COMMAND}
+          echo "KafkaSpectre report generated at ${OUTPUT_FILE}.sarif"
+        else
+          echo "Running command: ${COMMAND}"
+          ${COMMAND}
+        fi
+
+    - name: Upload SARIF report
+      if: ${{ inputs.format == 'sarif' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: kafkaspectre-report.sarif

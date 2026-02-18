@@ -1,0 +1,40 @@
+name: Test KafkaSpectre Action
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # Required for uploading SARIF results
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run KafkaSpectre Action
+        uses: ./.github/actions/kafkaspectre-action
+        id: kafkaspectre
+        with:
+          bootstrap-server: 'localhost:9092' # Placeholder, will likely fail connection
+          format: 'sarif'
+          fail-on: ''
+          args: '--exclude-internal' # Example argument
+
+      # Add steps to verify the output, e.g., check for sarif file existence
+      - name: Check for SARIF file (if format is sarif)
+        run: |
+          # The action itself doesn't directly expose outputs for format, 
+          # so we check based on the input provided to the action.
+          if [ "${{ inputs.format }}" == "sarif" ]; then
+            if [ -f "kafkaspectre-report.sarif" ]; then
+              echo "SARIF report found!"
+              # You can add more advanced checks here, e.g., validate SARIF content
+              cat kafkaspectre-report.sarif
+            else
+              echo "SARIF report not found!"
+              exit 1
+            fi
+          else
+            echo "SARIF format not requested, skipping SARIF file check."
+          fi
