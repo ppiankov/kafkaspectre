@@ -1,4 +1,4 @@
-## Topic Cleanup Guide
+# Topic Cleanup Guide
 
 After running KafkaSpectre audit, use this guide to safely clean up unused topics.
 
