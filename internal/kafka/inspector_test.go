@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -109,6 +110,75 @@ func TestBuildSASL(t *testing.T) {
 				t.Fatalf("expected non-nil option")
 			}
 		})
+	}
+}
+
+func TestBuildSASLCaseInsensitive(t *testing.T) {
+	// Verify mixed-case strings are handled by the switch
+	cases := []string{"plain", "Plain", "PLAIN", "scram-sha-256", "Scram-SHA-256", "scram-sha-512", "Scram-Sha-512"}
+	for _, mech := range cases {
+		t.Run(mech, func(t *testing.T) {
+			opt, err := buildSASL(Config{
+				AuthMechanism: mech,
+				Username:      "u",
+				Password:      "p",
+			})
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", mech, err)
+			}
+			if opt == nil {
+				t.Fatalf("expected non-nil option for %q", mech)
+			}
+		})
+	}
+}
+
+func TestBuildSASLUnsupportedMechanisms(t *testing.T) {
+	unsupported := []string{"GSSAPI", "OAUTHBEARER", ""}
+	for _, mech := range unsupported {
+		if mech == "" {
+			continue // empty is handled before buildSASL is called
+		}
+		t.Run(mech, func(t *testing.T) {
+			_, err := buildSASL(Config{AuthMechanism: mech})
+			if err == nil {
+				t.Fatalf("expected error for unsupported mechanism %q", mech)
+			}
+			if !strings.Contains(err.Error(), "unsupported SASL mechanism") {
+				t.Fatalf("error = %q, want 'unsupported SASL mechanism'", err.Error())
+			}
+		})
+	}
+}
+
+func TestBuildTLSFullChain(t *testing.T) {
+	// Tests a full TLS configuration with CA + client cert
+	dir := t.TempDir()
+	certPath, keyPath, certPEM := writeTestCert(t, dir, "full")
+
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, certPEM, 0o600); err != nil {
+		t.Fatalf("write ca: %v", err)
+	}
+
+	cfg := Config{
+		TLSCertFile: certPath,
+		TLSKeyFile:  keyPath,
+		TLSCAFile:   caPath,
+	}
+
+	tlsCfg, err := buildTLS(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tlsCfg.Certificates) != 1 {
+		t.Fatalf("expected 1 client certificate, got %d", len(tlsCfg.Certificates))
+	}
+	if tlsCfg.RootCAs == nil {
+		t.Fatalf("expected root CAs to be set")
+	}
+	if tlsCfg.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("expected min version TLS12")
 	}
 }
 

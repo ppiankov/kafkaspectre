@@ -61,11 +61,13 @@ func NewInspector(cfg Config) (*Inspector, error) {
 		return nil, fmt.Errorf("failed to create Kafka client: %w", err)
 	}
 
-	// Ping the cluster to verify connectivity
+	// Ping the cluster to verify connectivity (with retry for transient failures)
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.QueryTimeout)
 	defer cancel()
 
-	if err := client.Ping(ctx); err != nil {
+	if err := withRetry(ctx, "ping broker", func() error {
+		return client.Ping(ctx)
+	}); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to connect to Kafka cluster: %w", err)
 	}
@@ -97,8 +99,12 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	}
 
 	// Fetch broker metadata
-	brokerMeta, err := i.admin.Metadata(ctx)
-	if err != nil {
+	var brokerMeta kadm.Metadata
+	if err := withRetry(ctx, "fetch broker metadata", func() error {
+		var metaErr error
+		brokerMeta, metaErr = i.admin.Metadata(ctx)
+		return metaErr
+	}); err != nil {
 		return nil, fmt.Errorf("failed to fetch broker metadata: %w", err)
 	}
 
@@ -116,8 +122,12 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	}
 
 	// Fetch topic metadata
-	topicDetails, err := i.admin.ListTopics(ctx)
-	if err != nil {
+	var topicDetails kadm.TopicDetails
+	if err := withRetry(ctx, "list topics", func() error {
+		var listErr error
+		topicDetails, listErr = i.admin.ListTopics(ctx)
+		return listErr
+	}); err != nil {
 		return nil, fmt.Errorf("failed to list topics: %w", err)
 	}
 
@@ -163,8 +173,12 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	}
 
 	// Fetch consumer groups
-	groups, err := i.admin.ListGroups(ctx)
-	if err != nil {
+	var groups kadm.ListedGroups
+	if err := withRetry(ctx, "list consumer groups", func() error {
+		var groupErr error
+		groups, groupErr = i.admin.ListGroups(ctx)
+		return groupErr
+	}); err != nil {
 		return nil, fmt.Errorf("failed to list consumer groups: %w", err)
 	}
 
