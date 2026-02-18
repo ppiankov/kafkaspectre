@@ -473,11 +473,19 @@ func TestClassifyRisk(t *testing.T) {
 		wantRisk    string
 		wantPrio    int
 	}{
-		{name: "high-partitions", partitions: 10, replication: 1, wantRisk: "high", wantPrio: 3},
-		{name: "high-replication", partitions: 1, replication: 3, wantRisk: "high", wantPrio: 3},
-		{name: "medium-partitions", partitions: 2, replication: 1, wantRisk: "medium", wantPrio: 2},
-		{name: "medium-replication", partitions: 1, replication: 2, wantRisk: "medium", wantPrio: 2},
-		{name: "low", partitions: 1, replication: 1, wantRisk: "low", wantPrio: 1},
+		{name: "high-partitions-boundary", partitions: 10, replication: 1, wantRisk: "high", wantPrio: 3},
+		{name: "high-partitions-above", partitions: 15, replication: 1, wantRisk: "high", wantPrio: 3},
+		{name: "high-partitions-below", partitions: 9, replication: 1, wantRisk: "medium", wantPrio: 2},
+		{name: "high-replication-boundary", partitions: 1, replication: 3, wantRisk: "high", wantPrio: 3},
+		{name: "high-replication-above", partitions: 1, replication: 5, wantRisk: "high", wantPrio: 3},
+		{name: "high-replication-below", partitions: 1, replication: 2, wantRisk: "medium", wantPrio: 2},
+		{name: "medium-partitions-boundary", partitions: 2, replication: 1, wantRisk: "medium", wantPrio: 2},
+		{name: "medium-partitions-above", partitions: 5, replication: 1, wantRisk: "medium", wantPrio: 2},
+		{name: "medium-replication-boundary", partitions: 1, replication: 2, wantRisk: "medium", wantPrio: 2},
+		{name: "low-boundary", partitions: 1, replication: 1, wantRisk: "low", wantPrio: 1},
+		{name: "high-overrides-medium", partitions: 10, replication: 2, wantRisk: "high", wantPrio: 3},
+		{name: "zero-partitions", partitions: 0, replication: 1, wantRisk: "low", wantPrio: 1},
+		{name: "zero-replication", partitions: 1, replication: 0, wantRisk: "low", wantPrio: 1},
 	}
 
 	for _, tc := range cases {
@@ -539,10 +547,21 @@ func TestClusterHealthScore(t *testing.T) {
 	}{
 		{name: "excellent-lower", percent: 0, want: "excellent"},
 		{name: "excellent-upper", percent: 10, want: "excellent"},
+		{name: "excellent-mid", percent: 5, want: "excellent"},
+		{name: "good-lower", percent: 10.1, want: "good"},
 		{name: "good-upper", percent: 25, want: "good"},
+		{name: "good-mid", percent: 17.5, want: "good"},
+		{name: "fair-lower", percent: 25.1, want: "fair"},
 		{name: "fair-upper", percent: 50, want: "fair"},
+		{name: "fair-mid", percent: 37.5, want: "fair"},
+		{name: "poor-lower", percent: 50.1, want: "poor"},
 		{name: "poor-upper", percent: 75, want: "poor"},
-		{name: "critical-over", percent: 75.1, want: "critical"},
+		{name: "poor-mid", percent: 62.5, want: "poor"},
+		{name: "critical-lower", percent: 75.1, want: "critical"},
+		{name: "critical-mid", percent: 87.5, want: "critical"},
+		{name: "critical-upper", percent: 100, want: "critical"},
+		{name: "negative", percent: -5, want: "excellent"},
+		{name: "very-high", percent: 150, want: "critical"},
 	}
 
 	for _, tc := range cases {
