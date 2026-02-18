@@ -11,21 +11,21 @@ import (
 
 // AuditResult contains the results of a cluster audit
 type AuditResult struct {
-	Summary        *AuditSummary
-	UnusedTopics   []*UnusedTopic
-	ActiveTopics   []*ActiveTopic
-	Metadata       *kafka.ClusterMetadata
-	TotalTopics    int
-	UnusedCount    int
-	ActiveCount    int
-	InternalCount  int
+	Summary       *AuditSummary
+	UnusedTopics  []*UnusedTopic
+	ActiveTopics  []*ActiveTopic
+	Metadata      *kafka.ClusterMetadata
+	TotalTopics   int
+	UnusedCount   int
+	ActiveCount   int
+	InternalCount int
 }
 
 // AuditSummary provides high-level audit insights
 type AuditSummary struct {
 	// Cluster Overview
-	ClusterName         string  `json:"cluster_name"`
-	TotalBrokers        int     `json:"total_brokers"`
+	ClusterName  string `json:"cluster_name"`
+	TotalBrokers int    `json:"total_brokers"`
 
 	// Topic Statistics
 	TotalTopicsIncludingInternal int     `json:"total_topics_including_internal"`
@@ -36,22 +36,22 @@ type AuditSummary struct {
 	UnusedPercentage             float64 `json:"unused_percentage"`
 
 	// Partition Statistics
-	TotalPartitions        int `json:"total_partitions"`
-	UnusedPartitions       int `json:"unused_partitions"`
-	ActivePartitions       int `json:"active_partitions"`
+	TotalPartitions         int     `json:"total_partitions"`
+	UnusedPartitions        int     `json:"unused_partitions"`
+	ActivePartitions        int     `json:"active_partitions"`
 	UnusedPartitionsPercent float64 `json:"unused_partitions_percentage"`
 
 	// Consumer Group Statistics
 	TotalConsumerGroups int `json:"total_consumer_groups"`
 
 	// Risk Breakdown
-	HighRiskCount       int     `json:"high_risk_count"`
-	MediumRiskCount     int     `json:"medium_risk_count"`
-	LowRiskCount        int     `json:"low_risk_count"`
+	HighRiskCount   int `json:"high_risk_count"`
+	MediumRiskCount int `json:"medium_risk_count"`
+	LowRiskCount    int `json:"low_risk_count"`
 
 	// Recommendations
-	RecommendedCleanup  []string `json:"recommended_cleanup_topics"`
-	ClusterHealthScore  string   `json:"cluster_health_score"`
+	RecommendedCleanup []string `json:"recommended_cleanup_topics"`
+	ClusterHealthScore string   `json:"cluster_health_score"`
 
 	// Stakeholder Metrics
 	PotentialSavingsInfo string `json:"potential_savings_info"`
@@ -59,18 +59,18 @@ type AuditSummary struct {
 
 // UnusedTopic represents a topic that has no active consumers
 type UnusedTopic struct {
-	Name                 string            `json:"name"`
-	Partitions           int               `json:"partitions"`
-	ReplicationFactor    int               `json:"replication_factor"`
-	RetentionMs          string            `json:"retention_ms"`
-	RetentionHuman       string            `json:"retention_human"`
-	CleanupPolicy        string            `json:"cleanup_policy"`
-	MinInsyncReplicas    string            `json:"min_insync_replicas"`
-	InterestingConfig    map[string]string `json:"interesting_config"`
-	Reason               string            `json:"reason"`
-	Recommendation       string            `json:"recommendation"`
-	Risk                 string            `json:"risk"`
-	CleanupPriority      int               `json:"cleanup_priority"`
+	Name              string            `json:"name"`
+	Partitions        int               `json:"partitions"`
+	ReplicationFactor int               `json:"replication_factor"`
+	RetentionMs       string            `json:"retention_ms"`
+	RetentionHuman    string            `json:"retention_human"`
+	CleanupPolicy     string            `json:"cleanup_policy"`
+	MinInsyncReplicas string            `json:"min_insync_replicas"`
+	InterestingConfig map[string]string `json:"interesting_config"`
+	Reason            string            `json:"reason"`
+	Recommendation    string            `json:"recommendation"`
+	Risk              string            `json:"risk"`
+	CleanupPriority   int               `json:"cleanup_priority"`
 }
 
 // ActiveTopic represents a topic with active consumers
@@ -94,15 +94,15 @@ func FilterInterestingConfig(config map[string]string) map[string]string {
 	interesting := make(map[string]string)
 
 	importantKeys := map[string]bool{
-		"retention.ms":           true,
-		"retention.bytes":        true,
-		"cleanup.policy":         true,
-		"min.insync.replicas":    true,
-		"compression.type":       true,
-		"max.message.bytes":      true,
-		"segment.ms":             true,
-		"segment.bytes":          true,
-		"delete.retention.ms":    true,
+		"retention.ms":        true,
+		"retention.bytes":     true,
+		"cleanup.policy":      true,
+		"min.insync.replicas": true,
+		"compression.type":    true,
+		"max.message.bytes":   true,
+		"segment.ms":          true,
+		"segment.bytes":       true,
+		"delete.retention.ms": true,
 	}
 
 	for key, value := range config {
@@ -155,18 +155,18 @@ func BuildUnusedTopic(topic *kafka.TopicInfo, reason, recommendation, risk strin
 	retentionMs := topic.Config["retention.ms"]
 
 	return &UnusedTopic{
-		Name:                 topic.Name,
-		Partitions:           topic.Partitions,
-		ReplicationFactor:    topic.ReplicationFactor,
-		RetentionMs:          retentionMs,
-		RetentionHuman:       FormatRetentionMs(retentionMs),
-		CleanupPolicy:        topic.Config["cleanup.policy"],
-		MinInsyncReplicas:    topic.Config["min.insync.replicas"],
-		InterestingConfig:    FilterInterestingConfig(topic.Config),
-		Reason:               reason,
-		Recommendation:       recommendation,
-		Risk:                 risk,
-		CleanupPriority:      priority,
+		Name:              topic.Name,
+		Partitions:        topic.Partitions,
+		ReplicationFactor: topic.ReplicationFactor,
+		RetentionMs:       retentionMs,
+		RetentionHuman:    FormatRetentionMs(retentionMs),
+		CleanupPolicy:     topic.Config["cleanup.policy"],
+		MinInsyncReplicas: topic.Config["min.insync.replicas"],
+		InterestingConfig: FilterInterestingConfig(topic.Config),
+		Reason:            reason,
+		Recommendation:    recommendation,
+		Risk:              risk,
+		CleanupPriority:   priority,
 	}
 }
 

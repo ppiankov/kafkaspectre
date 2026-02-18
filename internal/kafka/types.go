@@ -22,13 +22,13 @@ type TopicInfo struct {
 
 // ConsumerGroupInfo contains metadata about a Kafka consumer group
 type ConsumerGroupInfo struct {
-	GroupID       string
-	State         string // Stable, Empty, Dead, etc.
-	Members       int
-	Topics        []string
-	Lag           map[string]int64 // topic -> total lag
-	LastCommit    time.Time
-	Coordinator   int32 // Broker ID
+	GroupID     string
+	State       string // Stable, Empty, Dead, etc.
+	Members     int
+	Topics      []string
+	Lag         map[string]int64 // topic -> total lag
+	LastCommit  time.Time
+	Coordinator int32 // Broker ID
 }
 
 // BrokerInfo contains metadata about a Kafka broker
@@ -45,7 +45,7 @@ type Config struct {
 	AuthMechanism    string // PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
 	Username         string
 	Password         string
-	TLSEnabled       bool   // Enable TLS without client certificates
+	TLSEnabled       bool // Enable TLS without client certificates
 	TLSCertFile      string
 	TLSKeyFile       string
 	TLSCAFile        string
