@@ -16,6 +16,10 @@ inputs:
     description: 'Additional arguments to pass to kafkaspectre'
     required: false
     default: ''
+  kafkaspectre-version:
+    description: 'The version of KafkaSpectre to use (e.g., v0.1.1)'
+    required: false
+    default: 'v0.1.1'
 
 runs:
   using: 'composite'
@@ -27,7 +31,7 @@ runs:
         # In a real scenario, you might fetch from a release asset or build it.
         # This assumes a Linux amd64 binary. Adjust for other OS/arch if needed.
         # Replace v0.1.1 with the actual release version.
-        BINARY_VERSION="v0.1.1"
+        BINARY_VERSION="${{ inputs.kafkaspectre-version }}"
         BINARY_NAME="kafkaspectre"
         DOWNLOAD_URL="https://github.com/ppiankov/kafkaspectre/releases/download/${BINARY_VERSION}/${BINARY_NAME}_${BINARY_VERSION}_linux_amd64"
         

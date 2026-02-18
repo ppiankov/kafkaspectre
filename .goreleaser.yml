@@ -34,3 +34,12 @@ release:
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
+
+brews:
+  -
+    name: "kafkaspectre"
+    homepage: "https://github.com/ppiankov/kafkaspectre"
+    description: "KafkaSpectre is a CLI tool for Kafka topic auditing and scanning."
+    license: "Apache 2.0"
+    install: |
+      bin.install "kafkaspectre"
