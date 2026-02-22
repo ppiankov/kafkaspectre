@@ -11,6 +11,10 @@ import (
 
 // AuditResult contains the results of a cluster audit
 type AuditResult struct {
+	Tool      string // tool identifier for SpectreHub compatibility
+	Version   string // tool version for SpectreHub compatibility
+	Timestamp string // RFC3339 generation timestamp for SpectreHub compatibility
+
 	Summary       *AuditSummary
 	UnusedTopics  []*UnusedTopic
 	ActiveTopics  []*ActiveTopic

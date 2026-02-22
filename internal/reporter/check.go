@@ -45,8 +45,11 @@ type CheckSummary struct {
 
 // CheckResult is the full output model for the check command.
 type CheckResult struct {
-	Summary  *CheckSummary   `json:"summary"`
-	Findings []*CheckFinding `json:"findings"`
+	Tool      string          `json:"tool"`
+	Version   string          `json:"version"`
+	Timestamp string          `json:"timestamp"`
+	Summary   *CheckSummary   `json:"summary"`
+	Findings  []*CheckFinding `json:"findings"`
 }
 
 // CheckReporter generates check command output.

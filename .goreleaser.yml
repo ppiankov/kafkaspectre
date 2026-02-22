@@ -39,7 +39,17 @@ brews:
   -
     name: "kafkaspectre"
     homepage: "https://github.com/ppiankov/kafkaspectre"
-    description: "KafkaSpectre is a CLI tool for Kafka topic auditing and scanning."
-    license: "Apache 2.0"
+    description: "Kafka cluster auditor — identifies unused, orphaned, and misconfigured topics"
+    license: "MIT"
+    repository:
+      owner: ppiankov
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    folder: Formula
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
     install: |
       bin.install "kafkaspectre"
+    test: |
+      assert_match "kafkaspectre", shell_output("#{bin}/kafkaspectre version")

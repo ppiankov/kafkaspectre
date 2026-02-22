@@ -28,12 +28,76 @@ var (
 
 const defaultQueryTimeout = 10 * time.Second
 
+// Exit codes for structured error reporting.
+const (
+	ExitSuccess    = 0 // success
+	ExitInternal   = 1 // internal error
+	ExitInvalidArg = 2 // invalid arguments
+	ExitNotFound   = 3 // not found (repo path, cluster unreachable)
+	ExitNetwork    = 5 // network error (Kafka connection failures)
+	ExitFindings   = 6 // findings detected (unused topics, check mismatches)
+)
+
+// FindingsError indicates the command succeeded but findings were detected.
+type FindingsError struct {
+	Count int
+}
+
+func (e *FindingsError) Error() string {
+	return fmt.Sprintf("%d findings detected", e.Count)
+}
+
+func classifyError(err error) int {
+	if err == nil {
+		return ExitSuccess
+	}
+
+	var fe *FindingsError
+	if errors.As(err, &fe) {
+		return ExitFindings
+	}
+
+	if os.IsNotExist(err) {
+		return ExitNotFound
+	}
+
+	msg := strings.ToLower(err.Error())
+
+	if strings.Contains(msg, "not a directory") ||
+		strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "no such file") {
+		return ExitNotFound
+	}
+
+	if strings.Contains(msg, "dial") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "network is unreachable") {
+		return ExitNetwork
+	}
+
+	if strings.Contains(msg, "required") ||
+		strings.Contains(msg, "invalid") ||
+		strings.Contains(msg, "must be") ||
+		strings.Contains(msg, "expected") {
+		return ExitInvalidArg
+	}
+
+	return ExitInternal
+}
+
 func main() {
 	logging.Init(false)
 
 	if err := newRootCmd().Execute(); err != nil {
-		slog.Error("command failed", "error", err, "hint", "use 'kafkaspectre --help' for usage information")
-		os.Exit(1)
+		exitCode := classifyError(err)
+		var fe *FindingsError
+		if errors.As(err, &fe) {
+			slog.Info("findings detected", "count", fe.Count)
+		} else {
+			slog.Error("command failed", "error", err, "hint", "use 'kafkaspectre --help' for usage information")
+		}
+		os.Exit(exitCode)
 	}
 }
 
@@ -342,6 +406,9 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	}
 
 	result := buildAuditResult(metadata, opts.excludeInternal, excludePatterns)
+	result.Tool = "kafkaspectre"
+	result.Version = Version
+	result.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
 	if output == "text" {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "KafkaSpectre Audit\n")
@@ -399,6 +466,10 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 		"consumer_group_count", len(metadata.ConsumerGroups),
 		"duration", time.Since(start),
 	)
+
+	if result.UnusedCount > 0 {
+		return &FindingsError{Count: result.UnusedCount}
+	}
 
 	return nil
 }
@@ -481,6 +552,9 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	}
 
 	result := buildCheckResult(scanResult, metadata, opts.excludeInternal, excludePatterns)
+	result.Tool = "kafkaspectre"
+	result.Version = Version
+	result.Timestamp = time.Now().UTC().Format(time.RFC3339)
 
 	if output == "text" {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "KafkaSpectre Check\n")
@@ -546,6 +620,11 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 		"consumer_group_count", len(metadata.ConsumerGroups),
 		"duration", time.Since(start),
 	)
+
+	findingsCount := result.Summary.TotalFindings - result.Summary.OKCount
+	if findingsCount > 0 {
+		return &FindingsError{Count: findingsCount}
+	}
 
 	return nil
 }

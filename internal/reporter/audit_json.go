@@ -24,6 +24,9 @@ func NewAuditJSONReporter(w io.Writer, pretty bool) *AuditJSONReporter {
 
 // AuditJSONOutput is the restructured JSON output format
 type AuditJSONOutput struct {
+	Tool            string           `json:"tool"`
+	Version         string           `json:"version"`
+	Timestamp       string           `json:"timestamp"`
 	Summary         *AuditSummary    `json:"summary"`
 	UnusedTopics    []*UnusedTopic   `json:"unused_topics"`
 	ActiveTopics    []*ActiveTopic   `json:"active_topics,omitempty"`
@@ -48,6 +51,9 @@ type BrokerInfo struct {
 func (r *AuditJSONReporter) GenerateAudit(ctx context.Context, result *AuditResult) error {
 	// Build simplified output structure
 	output := &AuditJSONOutput{
+		Tool:         result.Tool,
+		Version:      result.Version,
+		Timestamp:    result.Timestamp,
 		Summary:      result.Summary,
 		UnusedTopics: result.UnusedTopics,
 		ClusterMetadata: &ClusterMetadata{

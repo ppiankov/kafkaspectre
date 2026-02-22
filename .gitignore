@@ -44,6 +44,7 @@ kubeconfig-*
 
 # Context snapshots
 docs/context.txt
+docs/work-orders.md
 
 # OS
 .DS_Store
