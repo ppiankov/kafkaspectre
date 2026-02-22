@@ -26,6 +26,15 @@ func TestCheckJSONReporterGenerateCheck(t *testing.T) {
 		t.Fatalf("unmarshal output: %v", err)
 	}
 
+	if decoded.Tool != "kafkaspectre" {
+		t.Fatalf("tool = %q, want kafkaspectre", decoded.Tool)
+	}
+	if decoded.Version != "0.2.0-test" {
+		t.Fatalf("version = %q, want 0.2.0-test", decoded.Version)
+	}
+	if decoded.Timestamp != "2026-02-22T10:00:00Z" {
+		t.Fatalf("timestamp = %q, want 2026-02-22T10:00:00Z", decoded.Timestamp)
+	}
 	if decoded.Summary == nil || decoded.Summary.RepoPath != "./my-app" {
 		t.Fatalf("summary mismatch: %+v", decoded.Summary)
 	}
@@ -63,6 +72,9 @@ func TestCheckTextReporterGenerateCheck(t *testing.T) {
 
 func sampleCheckResult() *CheckResult {
 	return &CheckResult{
+		Tool:      "kafkaspectre",
+		Version:   "0.2.0-test",
+		Timestamp: "2026-02-22T10:00:00Z",
 		Summary: &CheckSummary{
 			RepoPath:                "./my-app",
 			FilesScanned:            11,
