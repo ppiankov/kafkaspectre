@@ -64,6 +64,9 @@ func TestAuditJSONReporterOutput(t *testing.T) {
 			buf := &bytes.Buffer{}
 			reporter := NewAuditJSONReporter(buf, tc.pretty)
 			result := &AuditResult{
+				Tool:         "kafkaspectre",
+				Version:      "0.2.0-test",
+				Timestamp:    "2026-02-22T10:00:00Z",
 				Summary:      summary,
 				UnusedTopics: []*UnusedTopic{{Name: "unused-a"}},
 				ActiveTopics: tc.active,
@@ -81,6 +84,16 @@ func TestAuditJSONReporterOutput(t *testing.T) {
 			var output AuditJSONOutput
 			if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &output); err != nil {
 				t.Fatalf("unmarshal output: %v", err)
+			}
+
+			if output.Tool != "kafkaspectre" {
+				t.Fatalf("tool = %q, want kafkaspectre", output.Tool)
+			}
+			if output.Version != "0.2.0-test" {
+				t.Fatalf("version = %q, want 0.2.0-test", output.Version)
+			}
+			if output.Timestamp != "2026-02-22T10:00:00Z" {
+				t.Fatalf("timestamp = %q, want 2026-02-22T10:00:00Z", output.Timestamp)
 			}
 
 			if output.Summary == nil || output.Summary.ClusterName != "cluster-1" {
