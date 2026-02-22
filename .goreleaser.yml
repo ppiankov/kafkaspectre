@@ -45,7 +45,7 @@ brews:
       owner: ppiankov
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    folder: Formula
+    directory: Formula
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
