@@ -198,7 +198,7 @@ func newAuditCmd() *cobra.Command {
 	flags.StringVar(&opts.tlsCert, "tls-cert", "", "Path to TLS client certificate")
 	flags.StringVar(&opts.tlsKey, "tls-key", "", "Path to TLS client private key")
 	flags.StringVar(&opts.tlsCA, "tls-ca", "", "Path to TLS CA certificate")
-	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|text)")
+	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|spectrehub|text)")
 	flags.BoolVar(&opts.excludeInternal, "exclude-internal", false, "Exclude internal topics from analysis")
 	flags.StringSliceVar(&opts.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
 	flags.DurationVar(&opts.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
@@ -231,7 +231,7 @@ func newCheckCmd() *cobra.Command {
 	flags.StringVar(&opts.tlsCert, "tls-cert", "", "Path to TLS client certificate")
 	flags.StringVar(&opts.tlsKey, "tls-key", "", "Path to TLS client private key")
 	flags.StringVar(&opts.tlsCA, "tls-ca", "", "Path to TLS CA certificate")
-	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|text)")
+	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|spectrehub|text)")
 	flags.BoolVar(&opts.excludeInternal, "exclude-internal", false, "Exclude internal topics from analysis")
 	flags.StringSliceVar(&opts.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
 	flags.DurationVar(&opts.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
@@ -364,8 +364,8 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	if output == "" {
 		output = "text"
 	}
-	if output != "json" && output != "sarif" && output != "text" {
-		return fmt.Errorf("invalid output format %q (expected json, sarif, or text)", opts.output)
+	if output != "json" && output != "sarif" && output != "spectrehub" && output != "text" {
+		return fmt.Errorf("invalid output format %q (expected json, sarif, spectrehub, or text)", opts.output)
 	}
 	if opts.authMechanism != "" && (opts.username == "" || opts.password == "") {
 		return errors.New("auth-mechanism requires both --username and --password")
@@ -441,6 +441,9 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	case "sarif":
 		sarifReporter := reporter.NewSARIFReporter(cmd.OutOrStdout(), false)
 		generateErr = sarifReporter.GenerateAudit(context.Background(), result)
+	case "spectrehub":
+		hubReporter := reporter.NewSpectreHubReporter(cmd.OutOrStdout(), opts.bootstrapServer)
+		generateErr = hubReporter.GenerateAudit(context.Background(), result)
 	case "text":
 		auditReporter := reporter.NewAuditTextReporter(cmd.OutOrStdout(), false)
 		generateErr = auditReporter.GenerateAudit(context.Background(), result)
@@ -489,8 +492,8 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	if output == "" {
 		output = "text"
 	}
-	if output != "json" && output != "sarif" && output != "text" {
-		return fmt.Errorf("invalid output format %q (expected json, sarif, or text)", opts.output)
+	if output != "json" && output != "sarif" && output != "spectrehub" && output != "text" {
+		return fmt.Errorf("invalid output format %q (expected json, sarif, spectrehub, or text)", opts.output)
 	}
 	if opts.authMechanism != "" && (opts.username == "" || opts.password == "") {
 		return errors.New("auth-mechanism requires both --username and --password")
@@ -595,6 +598,9 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	case "sarif":
 		sarifReporter := reporter.NewSARIFReporter(cmd.OutOrStdout(), false)
 		generateErr = sarifReporter.GenerateCheck(context.Background(), result)
+	case "spectrehub":
+		hubReporter := reporter.NewSpectreHubReporter(cmd.OutOrStdout(), opts.bootstrapServer)
+		generateErr = hubReporter.GenerateCheck(context.Background(), result)
 	case "text":
 		checkReporter := reporter.NewCheckTextReporter(cmd.OutOrStdout())
 		generateErr = checkReporter.GenerateCheck(context.Background(), result)
