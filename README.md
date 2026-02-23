@@ -1,9 +1,9 @@
 # kafkaspectre
-
 [![CI](https://github.com/ppiankov/kafkaspectre/actions/workflows/ci.yml/badge.svg)](https://github.com/ppiankov/kafkaspectre/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kafkaspectre)](https://goreportcard.com/report/github.com/ppiankov/kafkaspectre)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 
 Kafka cluster auditor — identifies unused, orphaned, and misconfigured topics.
 
