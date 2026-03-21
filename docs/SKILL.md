@@ -21,6 +21,7 @@ go install github.com/ppiankov/kafkaspectre/cmd/kafkaspectre@latest
 Scans Kafka clusters for security findings.
 
 **Flags:**
+- `--format json` — output as JSON (ANCC standard, alias for --output json)
 - `--output json` — output as JSON (spectre/v1 envelope)
 - `--output sarif` — SARIF format for CI integration
 - `--output spectrehub` — SpectreHub aggregator format
