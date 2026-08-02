@@ -263,6 +263,15 @@ func resolveAuditOptions(cmd *cobra.Command, opts auditOptions) (auditOptions, e
 	}
 	opts.excludeTopics = patterns
 
+	// WO-34: credentials come from the environment, never the config file, so a
+	// secured cluster works without repeating --username/--password each run.
+	if !flagChanged(cmd, "username") && opts.username == "" {
+		opts.username, _ = config.CredentialsFromEnv()
+	}
+	if !flagChanged(cmd, "password") && opts.password == "" {
+		_, opts.password = config.CredentialsFromEnv()
+	}
+
 	// WO-37: only substitute the default when the flag was genuinely absent.
 	// Keying on `timeout == 0` made an explicit `--timeout 0` indistinguishable
 	// from "not set", so it was silently rewritten to 10s and the
@@ -289,6 +298,14 @@ func resolveCheckOptions(cmd *cobra.Command, opts checkOptions) (checkOptions, e
 		return opts, err
 	}
 	opts.excludeTopics = patterns
+
+	// WO-34: see resolveAuditOptions — credentials are environment-sourced.
+	if !flagChanged(cmd, "username") && opts.username == "" {
+		opts.username, _ = config.CredentialsFromEnv()
+	}
+	if !flagChanged(cmd, "password") && opts.password == "" {
+		_, opts.password = config.CredentialsFromEnv()
+	}
 
 	// WO-37: see resolveAuditOptions — an explicit --timeout 0 must reach the
 	// validation guard rather than being replaced by the default.
@@ -318,6 +335,20 @@ func applyAuditConfigDefaults(cmd *cobra.Command, opts auditOptions, cfg *config
 	if !flagChanged(cmd, "timeout") && cfg.HasTimeout {
 		opts.timeout = cfg.Timeout
 	}
+	// WO-34: TLS material completes the connection surface so a secured cluster
+	// can be expressed in config instead of on every command line.
+	if !flagChanged(cmd, "tls") && cfg.TLSEnabled != nil {
+		opts.tlsEnabled = *cfg.TLSEnabled
+	}
+	if !flagChanged(cmd, "tls-cert") && strings.TrimSpace(cfg.TLSCertFile) != "" {
+		opts.tlsCert = cfg.TLSCertFile
+	}
+	if !flagChanged(cmd, "tls-key") && strings.TrimSpace(cfg.TLSKeyFile) != "" {
+		opts.tlsKey = cfg.TLSKeyFile
+	}
+	if !flagChanged(cmd, "tls-ca") && strings.TrimSpace(cfg.TLSCAFile) != "" {
+		opts.tlsCA = cfg.TLSCAFile
+	}
 
 	return opts
 }
@@ -340,6 +371,20 @@ func applyCheckConfigDefaults(cmd *cobra.Command, opts checkOptions, cfg *config
 	}
 	if !flagChanged(cmd, "timeout") && cfg.HasTimeout {
 		opts.timeout = cfg.Timeout
+	}
+	// WO-34: TLS material completes the connection surface so a secured cluster
+	// can be expressed in config instead of on every command line.
+	if !flagChanged(cmd, "tls") && cfg.TLSEnabled != nil {
+		opts.tlsEnabled = *cfg.TLSEnabled
+	}
+	if !flagChanged(cmd, "tls-cert") && strings.TrimSpace(cfg.TLSCertFile) != "" {
+		opts.tlsCert = cfg.TLSCertFile
+	}
+	if !flagChanged(cmd, "tls-key") && strings.TrimSpace(cfg.TLSKeyFile) != "" {
+		opts.tlsKey = cfg.TLSKeyFile
+	}
+	if !flagChanged(cmd, "tls-ca") && strings.TrimSpace(cfg.TLSCAFile) != "" {
+		opts.tlsCA = cfg.TLSCAFile
 	}
 
 	return opts
