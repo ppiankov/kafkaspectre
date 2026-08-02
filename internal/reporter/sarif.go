@@ -437,6 +437,7 @@ type sarifReport struct {
 	Runs    []sarifRun `json:"runs"`
 }
 
+// WO-27: SARIF run with invocations
 type sarifRun struct {
 	Tool               sarifTool                        `json:"tool"`
 	Invocations        []sarifInvocation                `json:"invocations,omitempty"`
@@ -453,11 +454,13 @@ type sarifInvocation struct {
 	ToolExecutionNotifications []sarifNotification `json:"toolExecutionNotifications,omitempty"`
 }
 
+// WO-27: SARIF notification for degraded scans
 type sarifNotification struct {
 	Level   string           `json:"level"`
 	Message sarifMessageText `json:"message"`
 }
 
+// WO-27: SARIF message text
 type sarifMessageText struct {
 	Text string `json:"text"`
 }

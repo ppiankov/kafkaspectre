@@ -59,6 +59,7 @@ func (o *auditOptions) connection() connectionOptions {
 	}
 }
 
+// WO-36: pointer view over check connection options
 func (o *checkOptions) connection() connectionOptions {
 	return connectionOptions{
 		bootstrapServer: &o.bootstrapServer,

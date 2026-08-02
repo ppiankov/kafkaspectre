@@ -28,6 +28,7 @@ var connectionFlagNames = []string{
 	"username",
 }
 
+// WO-36: extract flag names helper
 func flagNames(set *pflag.FlagSet) []string {
 	names := make([]string, 0)
 	set.VisitAll(func(f *pflag.Flag) { names = append(names, f.Name) })

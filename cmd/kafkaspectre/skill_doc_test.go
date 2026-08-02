@@ -33,6 +33,7 @@ func readSkillDoc(t *testing.T) string {
 	return string(data)
 }
 
+// WO-25: enumerate known commands
 func knownCommands(t *testing.T) map[string]*cobra.Command {
 	t.Helper()
 	root := newRootCmd()

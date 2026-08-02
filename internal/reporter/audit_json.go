@@ -23,6 +23,7 @@ func NewAuditJSONReporter(w io.Writer, pretty bool) *AuditJSONReporter {
 }
 
 // AuditJSONOutput is the restructured JSON output format
+// WO-27: JSON output with managed topics and reliability
 type AuditJSONOutput struct {
 	Tool         string         `json:"tool"`
 	Version      string         `json:"version"`

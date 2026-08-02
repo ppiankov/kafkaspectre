@@ -11,6 +11,7 @@ import (
 )
 
 // AuditResult contains the results of a cluster audit
+// WO-26: audit result with managed topics and reliability
 type AuditResult struct {
 	Tool      string // tool identifier for SpectreHub compatibility
 	Version   string // tool version for SpectreHub compatibility
@@ -42,6 +43,7 @@ type AuditResult struct {
 }
 
 // AuditSummary provides high-level audit insights
+// WO-26: audit summary with managed hold-out counter
 type AuditSummary struct {
 	// Cluster Overview
 	ClusterName  string `json:"cluster_name"`

@@ -10,6 +10,7 @@ import (
 )
 
 // SpectreHubEnvelope is the spectre/v1 cross-tool ingestion format.
+// WO-27: SpectreHub envelope with reliability
 type SpectreHubEnvelope struct {
 	Schema    string              `json:"schema"`
 	Tool      string              `json:"tool"`

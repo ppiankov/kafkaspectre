@@ -25,6 +25,7 @@ const (
 	// the user also passed --username and --password. Credentials are read from
 	// the environment rather than the config file so a secured cluster can be
 	// expressed without writing a password to disk.
+// WO-34: SASL credential environment variables
 	UsernameEnvVar = "KAFKASPECTRE_USERNAME"
 	PasswordEnvVar = "KAFKASPECTRE_PASSWORD"
 )

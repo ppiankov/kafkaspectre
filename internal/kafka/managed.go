@@ -6,6 +6,7 @@ import (
 )
 
 // ManagedTopicOwner names the service that owns a provider-managed topic.
+// WO-26: managed topic owner type
 type ManagedTopicOwner string
 
 const (
@@ -86,6 +87,7 @@ var mirrorMakerPrefixes = []string{"mm2-offsets.", "mm2-configs.", "mm2-status."
 var extraManagedPatterns []string
 
 // SetExtraManagedPatterns declares additional managed-topic glob patterns.
+// WO-41: operator-declared managed patterns
 func SetExtraManagedPatterns(patterns []string) {
 	extraManagedPatterns = append([]string(nil), patterns...)
 }

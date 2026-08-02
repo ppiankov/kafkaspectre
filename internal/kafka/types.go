@@ -55,6 +55,7 @@ func (t *TopicInfo) ManagedOwner() ManagedTopicOwner {
 }
 
 // IsManaged reports whether this topic is backing store for a known service.
+// WO-26: report whether topic is managed
 func (t *TopicInfo) IsManaged() bool {
 	return t.ManagedOwner() != OwnerNone
 }

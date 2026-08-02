@@ -113,10 +113,12 @@ type auditOptions struct {
 	output          string
 	excludeInternal bool
 	excludeTopics   []string
-	includeManaged  bool // WO-26: surface service-managed backing topics
-	timeout         time.Duration
+	// WO-26: includeManaged surfaces service-managed backing topics in the report.
+	includeManaged bool
+	timeout        time.Duration
 }
 
+// WO-36: shared check command options
 type checkOptions struct {
 	repo            string
 	bootstrapServer string
@@ -612,6 +614,7 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	return nil
 }
 
+// WO-26: classify topics into unused/active/managed
 func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string) *reporter.AuditResult {
 	return buildAuditResultWithOptions(metadata, excludeInternal, excludeTopics, false)
 }

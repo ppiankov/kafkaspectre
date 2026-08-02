@@ -28,6 +28,7 @@ func scanDir(t *testing.T, files map[string]string) *Result {
 	return result
 }
 
+// WO-35: topic lookup helper
 func hasTopic(result *Result, topic string) bool {
 	_, ok := result.Topics[topic]
 	return ok

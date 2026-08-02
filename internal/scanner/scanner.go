@@ -22,6 +22,7 @@ type Scanner interface {
 }
 
 // Result contains discovered topic references and scan metadata.
+// WO-35: scan result with skipped file count
 type Result struct {
 	RepoPath     string `json:"repo_path"`
 	FilesScanned int    `json:"files_scanned"`

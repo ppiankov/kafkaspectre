@@ -35,6 +35,7 @@ func unusedByName(result *reporter.AuditResult, name string) *reporter.UnusedTop
 // Round 2: managed topics are reported separately from unused findings, because
 // a backing topic having no consumer group is its steady state rather than
 // something to act on.
+// WO-26: lookup managed topic by name
 func managedByName(result *reporter.AuditResult, name string) *reporter.UnusedTopic {
 	for _, managed := range result.ManagedTopics {
 		if managed.Name == name {
