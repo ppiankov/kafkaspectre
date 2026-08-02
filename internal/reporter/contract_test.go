@@ -143,3 +143,73 @@ func TestAuditTextSilentOnCleanScan(t *testing.T) {
 		t.Error("clean scan emitted an incomplete-scan warning")
 	}
 }
+
+// TestEveryAuditReporterCarriesReliability is the fail-closed guard for the
+// propagation gap: reliability reached the JSON and text reporters but was
+// silently dropped by SARIF and SpectreHub — and SpectreHub is the documented
+// aggregation target, so an aggregator had to regex English prose to tell a
+// blind scan from an authoritative one.
+func TestEveryAuditReporterCarriesReliability(t *testing.T) {
+	result := degradedResult()
+
+	renders := map[string]func() string{
+		"json": func() string {
+			var buf bytes.Buffer
+			_ = NewAuditJSONReporter(&buf, false).GenerateAudit(context.Background(), result)
+			return buf.String()
+		},
+		"text": func() string {
+			var buf bytes.Buffer
+			_ = NewAuditTextReporter(&buf, false).GenerateAudit(context.Background(), result)
+			return buf.String()
+		},
+		"sarif": func() string {
+			var buf bytes.Buffer
+			_ = NewSARIFReporter(&buf, false).GenerateAudit(context.Background(), result)
+			return buf.String()
+		},
+		"spectrehub": func() string {
+			var buf bytes.Buffer
+			_ = NewSpectreHubReporter(&buf, "kafka:9092").GenerateAudit(context.Background(), result)
+			return buf.String()
+		},
+	}
+
+	// Each format signals degradation in its own idiom; all four must signal it
+	// STRUCTURALLY, not only inside a human-readable message string.
+	wantMarker := map[string]string{
+		"json":       `"consumer_groups_complete": false`,
+		"text":       "INCOMPLETE SCAN",
+		"sarif":      `"executionSuccessful": false`,
+		"spectrehub": `"consumer_groups_complete": false`,
+	}
+
+	for format, render := range renders {
+		out := render()
+		marker := wantMarker[format]
+		// Tolerate compact JSON encoding.
+		compact := strings.ReplaceAll(marker, `": `, `":`)
+		if !strings.Contains(out, marker) && !strings.Contains(out, compact) {
+			t.Errorf("%s output does not signal a degraded scan (looking for %q)", format, marker)
+		}
+	}
+}
+
+// A clean scan must report success in every format.
+func TestEveryAuditReporterReportsCleanScan(t *testing.T) {
+	result := degradedResult()
+	result.Reliability = ScanReliability{ConsumerGroupsComplete: true}
+
+	var sarifBuf, hubBuf bytes.Buffer
+	_ = NewSARIFReporter(&sarifBuf, false).GenerateAudit(context.Background(), result)
+	_ = NewSpectreHubReporter(&hubBuf, "kafka:9092").GenerateAudit(context.Background(), result)
+
+	if strings.Contains(sarifBuf.String(), `"executionSuccessful":false`) ||
+		strings.Contains(sarifBuf.String(), `"executionSuccessful": false`) {
+		t.Error("clean scan reported executionSuccessful=false in SARIF")
+	}
+	if !strings.Contains(hubBuf.String(), `"consumer_groups_complete":true`) &&
+		!strings.Contains(hubBuf.String(), `"consumer_groups_complete": true`) {
+		t.Error("clean scan did not report completeness in the SpectreHub envelope")
+	}
+}

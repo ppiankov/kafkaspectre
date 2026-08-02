@@ -41,6 +41,7 @@ func NewSARIFReporter(w io.Writer, pretty bool) *SARIFReporter {
 // GenerateCheck emits check findings as SARIF.
 func (r *SARIFReporter) GenerateCheck(ctx context.Context, result *CheckResult) error {
 	run := buildCheckSARIFRun(result)
+	run.Invocations = invocationFor(result.Reliability)
 	return r.writeReport(sarifReport{
 		Schema:  sarifSchema,
 		Version: sarifVersion,
@@ -51,6 +52,7 @@ func (r *SARIFReporter) GenerateCheck(ctx context.Context, result *CheckResult) 
 // GenerateAudit emits audit findings as SARIF.
 func (r *SARIFReporter) GenerateAudit(ctx context.Context, result *AuditResult) error {
 	run := buildAuditSARIFRun(result)
+	run.Invocations = invocationFor(result.Reliability)
 	return r.writeReport(sarifReport{
 		Schema:  sarifSchema,
 		Version: sarifVersion,
@@ -435,8 +437,39 @@ type sarifReport struct {
 
 type sarifRun struct {
 	Tool               sarifTool                        `json:"tool"`
+	Invocations        []sarifInvocation                `json:"invocations,omitempty"`
 	Results            []sarifResult                    `json:"results,omitempty"`
 	OriginalURIBaseIDs map[string]sarifArtifactLocation `json:"originalUriBaseIds,omitempty"`
+}
+
+// sarifInvocation carries scan-completeness into the standard SARIF slot.
+//
+// WO-27: without it GitHub Code Scanning renders a degraded scan as a fully
+// successful run with error-level results.
+type sarifInvocation struct {
+	ExecutionSuccessful        bool                `json:"executionSuccessful"`
+	ToolExecutionNotifications []sarifNotification `json:"toolExecutionNotifications,omitempty"`
+}
+
+type sarifNotification struct {
+	Level   string           `json:"level"`
+	Message sarifMessageText `json:"message"`
+}
+
+type sarifMessageText struct {
+	Text string `json:"text"`
+}
+
+// invocationFor builds the SARIF invocation block for a scan.
+func invocationFor(reliability ScanReliability) []sarifInvocation {
+	inv := sarifInvocation{ExecutionSuccessful: reliability.ConsumerGroupsComplete}
+	for _, readErr := range reliability.ReadErrors {
+		inv.ToolExecutionNotifications = append(inv.ToolExecutionNotifications, sarifNotification{
+			Level:   "error",
+			Message: sarifMessageText{Text: readErr},
+		})
+	}
+	return []sarifInvocation{inv}
 }
 
 type sarifTool struct {

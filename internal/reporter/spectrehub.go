@@ -18,6 +18,12 @@ type SpectreHubEnvelope struct {
 	Target    SpectreHubTarget    `json:"target"`
 	Findings  []SpectreHubFinding `json:"findings"`
 	Summary   SpectreHubSummary   `json:"summary"`
+
+	// Reliability tells the aggregator whether this scan saw a complete
+	// picture. WO-27: SpectreHub is the documented aggregation target, and
+	// without a structured signal it must regex the message prose to avoid
+	// treating a blind scan as authoritative.
+	Reliability ScanReliability `json:"reliability"`
 }
 
 // SpectreHubTarget describes the audited system.
@@ -76,6 +82,8 @@ func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResul
 		},
 	}
 
+	envelope.Reliability = result.Reliability
+
 	if result.Summary != nil {
 		envelope.Target.Cluster = result.Summary.ClusterName
 	}
@@ -122,6 +130,8 @@ func (r *SpectreHubReporter) GenerateCheck(_ context.Context, result *CheckResul
 			URIHash: HashBootstrap(r.bootstrapServer),
 		},
 	}
+
+	envelope.Reliability = result.Reliability
 
 	for _, f := range result.Findings {
 		if f == nil || f.Status == CheckStatusOK {
