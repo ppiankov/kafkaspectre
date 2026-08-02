@@ -129,7 +129,9 @@ func TestBuildAuditResult(t *testing.T) {
 		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("recommended cleanup = %v, want %v", got, want)
 		}
-		if got, want := unusedNames(result.UnusedTopics), []string{"high-topic", "low-topic", "medium-topic"}; !reflect.DeepEqual(got, want) {
+		// WO-31: unused topics are ordered by risk descending at the source so
+		// every reporter inherits severity order, not just the text reporter.
+		if got, want := unusedNames(result.UnusedTopics), []string{"high-topic", "medium-topic", "low-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("unused topic order = %v, want %v", got, want)
 		}
 		if len(result.ActiveTopics) != 1 || result.ActiveTopics[0].ConsumerCount != 2 {

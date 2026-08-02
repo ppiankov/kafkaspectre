@@ -113,6 +113,7 @@ type auditOptions struct {
 	output          string
 	excludeInternal bool
 	excludeTopics   []string
+	includeManaged  bool
 	timeout         time.Duration
 }
 
@@ -129,6 +130,7 @@ type checkOptions struct {
 	output          string
 	excludeInternal bool
 	excludeTopics   []string
+	includeManaged  bool
 	timeout         time.Duration
 }
 
@@ -201,6 +203,7 @@ func newAuditCmd() *cobra.Command {
 	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|spectrehub|text)")
 	flags.BoolVar(&opts.excludeInternal, "exclude-internal", false, "Exclude internal topics from analysis")
 	flags.StringSliceVar(&opts.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
+	flags.BoolVar(&opts.includeManaged, "include-managed", false, "Include service-managed topics (Schema Registry, Connect) in analysis")
 	flags.DurationVar(&opts.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
 
 	return cmd
@@ -234,6 +237,7 @@ func newCheckCmd() *cobra.Command {
 	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|spectrehub|text)")
 	flags.BoolVar(&opts.excludeInternal, "exclude-internal", false, "Exclude internal topics from analysis")
 	flags.StringSliceVar(&opts.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
+	flags.BoolVar(&opts.includeManaged, "include-managed", false, "Include service-managed topics (Schema Registry, Connect) in analysis")
 	flags.DurationVar(&opts.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
 
 	if err := cmd.MarkFlagRequired("repo"); err != nil {
@@ -259,7 +263,11 @@ func resolveAuditOptions(cmd *cobra.Command, opts auditOptions) (auditOptions, e
 	}
 	opts.excludeTopics = patterns
 
-	if opts.timeout == 0 {
+	// WO-37: only substitute the default when the flag was genuinely absent.
+	// Keying on `timeout == 0` made an explicit `--timeout 0` indistinguishable
+	// from "not set", so it was silently rewritten to 10s and the
+	// "timeout must be greater than zero" guard was unreachable.
+	if opts.timeout == 0 && !flagChanged(cmd, "timeout") {
 		opts.timeout = defaultQueryTimeout
 	}
 
@@ -282,7 +290,9 @@ func resolveCheckOptions(cmd *cobra.Command, opts checkOptions) (checkOptions, e
 	}
 	opts.excludeTopics = patterns
 
-	if opts.timeout == 0 {
+	// WO-37: see resolveAuditOptions — an explicit --timeout 0 must reach the
+	// validation guard rather than being replaced by the default.
+	if opts.timeout == 0 && !flagChanged(cmd, "timeout") {
 		opts.timeout = defaultQueryTimeout
 	}
 
@@ -405,7 +415,7 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 		return err
 	}
 
-	result := buildAuditResult(metadata, opts.excludeInternal, excludePatterns)
+	result := buildAuditResultWithOptions(metadata, opts.excludeInternal, excludePatterns, opts.includeManaged)
 	result.Tool = "kafkaspectre"
 	result.Version = Version
 	result.Timestamp = time.Now().UTC().Format(time.RFC3339)
@@ -554,7 +564,7 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 		return err
 	}
 
-	result := buildCheckResult(scanResult, metadata, opts.excludeInternal, excludePatterns)
+	result := buildCheckResultWithOptions(scanResult, metadata, opts.excludeInternal, excludePatterns, opts.includeManaged)
 	result.Tool = "kafkaspectre"
 	result.Version = Version
 	result.Timestamp = time.Now().UTC().Format(time.RFC3339)
@@ -636,12 +646,23 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 }
 
 func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string) *reporter.AuditResult {
-	consumersByTopic := buildConsumersByTopic(metadata)
+	return buildAuditResultWithOptions(metadata, excludeInternal, excludeTopics, false)
+}
+
+// buildAuditResultWithOptions classifies topics into unused and active sets.
+//
+// WO-27: when the consumer-group picture is incomplete, "no consumers found"
+// is not evidence that a topic is unused, so no delete advice is emitted.
+// WO-26: topics owned by a managed service are never deletion candidates.
+func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.AuditResult {
+	consumersByTopic, abandonedByTopic := buildConsumersByTopicWithState(metadata)
+	consumerDataComplete := metadata.ConsumerGroupsComplete()
 
 	unusedTopics := make([]*reporter.UnusedTopic, 0)
 	activeTopics := make([]*reporter.ActiveTopic, 0)
 
 	internalTopics := 0
+	managedTopics := 0
 	totalTopics := 0
 	totalPartitions := 0
 	unusedPartitions := 0
@@ -660,6 +681,15 @@ func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, exc
 		if shouldExcludeTopic(topic.Name, excludeTopics) {
 			continue
 		}
+		// WO-26: managed topics are backing store for a live service, so listing
+		// them as cleanup candidates is actively dangerous. Broker-internal
+		// ("__") topics are deliberately NOT covered here — they are already
+		// governed by --exclude-internal, and overriding that would silently
+		// change the meaning of an existing flag.
+		if topic.IsManaged() && !topic.Internal && !includeManaged {
+			managedTopics++
+			continue
+		}
 
 		totalTopics++
 		totalPartitions += topic.Partitions
@@ -667,8 +697,10 @@ func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, exc
 		consumers := consumersByTopic[topic.Name]
 		if len(consumers) == 0 {
 			risk, priority := classifyRisk(topic)
-			recommendation := recommendationForRisk(risk)
-			unusedTopics = append(unusedTopics, reporter.BuildUnusedTopic(topic, "No consumer groups found", recommendation, risk, priority))
+			recommendation := unusedRecommendation(topic, risk, consumerDataComplete)
+			unused := reporter.BuildUnusedTopic(topic, unusedReason(topic, abandonedByTopic[topic.Name], consumerDataComplete), recommendation, risk, priority)
+			unused.AbandonedConsumerGroups = abandonedByTopic[topic.Name]
+			unusedTopics = append(unusedTopics, unused)
 			unusedPartitions += topic.Partitions
 			switch risk {
 			case "high":
@@ -684,9 +716,10 @@ func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, exc
 		}
 	}
 
-	sort.Slice(unusedTopics, func(i, j int) bool {
-		return unusedTopics[i].Name < unusedTopics[j].Name
-	})
+	// WO-31: order by risk descending at the source so the JSON, SARIF and
+	// SpectreHub reporters inherit severity order too. Previously only the text
+	// reporter re-sorted, leaving every machine-consumed output name-ordered.
+	reporter.SortUnusedTopicsBySeverity(unusedTopics)
 	sort.Slice(activeTopics, func(i, j int) bool {
 		return activeTopics[i].Name < activeTopics[j].Name
 	})
@@ -737,34 +770,103 @@ func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, exc
 		UnusedCount:   unusedCount,
 		ActiveCount:   activeCount,
 		InternalCount: internalTopics,
+		Reliability: reporter.ScanReliability{
+			ConsumerGroupsComplete: consumerDataComplete,
+			ReadErrors:             readErrors(metadata),
+		},
 	}
 }
 
+func readErrors(metadata *kafka.ClusterMetadata) []string {
+	if metadata == nil {
+		return nil
+	}
+	return append([]string(nil), metadata.ConsumerGroupReadErrors...)
+}
+
+// unusedReason explains why a topic has no consumers, distinguishing a genuine
+// absence from an unreadable cluster and from abandoned-only consumption.
+//
+// WO-27/WO-29: "No consumer groups found" was previously emitted for all three
+// cases, which are operationally very different.
+func unusedReason(topic *kafka.TopicInfo, abandoned []string, consumerDataComplete bool) string {
+	if !consumerDataComplete {
+		return "Consumer group data could not be read; unused status is UNVERIFIED"
+	}
+	if len(abandoned) > 0 {
+		return fmt.Sprintf("No active consumer groups; %d abandoned group(s) reference this topic", len(abandoned))
+	}
+	if owner := topic.ManagedOwner(); owner != kafka.OwnerNone {
+		return fmt.Sprintf("No consumer groups found; topic is managed by %s", owner)
+	}
+	return "No consumer groups found"
+}
+
+// unusedRecommendation decides what to advise for a topic with no consumers.
+//
+// WO-26: a managed topic is never a deletion candidate regardless of risk score.
+// WO-27: an unverified reading must not carry deletion advice at all.
+func unusedRecommendation(topic *kafka.TopicInfo, risk string, consumerDataComplete bool) string {
+	if owner := topic.ManagedOwner(); owner != kafka.OwnerNone {
+		return fmt.Sprintf("DO NOT DELETE — backing store for %s", owner)
+	}
+	if !consumerDataComplete {
+		return "Do not act on this finding — re-run once the cluster is fully readable"
+	}
+	return recommendationForRisk(risk)
+}
+
 func buildConsumersByTopic(metadata *kafka.ClusterMetadata) map[string][]string {
-	consumerSet := make(map[string]map[string]struct{})
+	active, _ := buildConsumersByTopicWithState(metadata)
+	return active
+}
+
+// buildConsumersByTopicWithState splits each topic's consumer groups into those
+// with live members and those that are abandoned.
+//
+// WO-29: ConsumerGroupInfo.State was captured but never read, so a group in
+// Empty or Dead state marked its topics ACTIVE. An abandoned group holding
+// stale offsets is evidence a topic is NO LONGER consumed; treating it as an
+// active consumer inverted the signal and hid the topic from the unused list.
+func buildConsumersByTopicWithState(metadata *kafka.ClusterMetadata) (active map[string][]string, abandoned map[string][]string) {
+	activeSet := make(map[string]map[string]struct{})
+	abandonedSet := make(map[string]map[string]struct{})
+
 	for _, group := range metadata.ConsumerGroups {
+		target := activeSet
+		if group.IsAbandoned() {
+			target = abandonedSet
+		}
 		for _, topic := range group.Topics {
-			if _, ok := consumerSet[topic]; !ok {
-				consumerSet[topic] = make(map[string]struct{})
+			if _, ok := target[topic]; !ok {
+				target[topic] = make(map[string]struct{})
 			}
-			consumerSet[topic][group.GroupID] = struct{}{}
+			target[topic][group.GroupID] = struct{}{}
 		}
 	}
 
-	consumersByTopic := make(map[string][]string, len(consumerSet))
-	for topic, groups := range consumerSet {
+	return flattenGroupSets(activeSet), flattenGroupSets(abandonedSet)
+}
+
+func flattenGroupSets(sets map[string]map[string]struct{}) map[string][]string {
+	out := make(map[string][]string, len(sets))
+	for topic, groups := range sets {
 		list := make([]string, 0, len(groups))
 		for group := range groups {
 			list = append(list, group)
 		}
 		sort.Strings(list)
-		consumersByTopic[topic] = list
+		out[topic] = list
 	}
 
-	return consumersByTopic
+	return out
 }
 
 func buildCheckResult(scanResult *scanner.Result, metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string) *reporter.CheckResult {
+	return buildCheckResultWithOptions(scanResult, metadata, excludeInternal, excludeTopics, false)
+}
+
+func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.CheckResult {
 	consumersByTopic := buildConsumersByTopic(metadata)
 
 	clusterTopics := make(map[string]*kafka.TopicInfo, len(metadata.Topics))
@@ -773,6 +875,12 @@ func buildCheckResult(scanResult *scanner.Result, metadata *kafka.ClusterMetadat
 			continue
 		}
 		if shouldExcludeTopic(name, excludeTopics) {
+			continue
+		}
+		// WO-26: a Schema Registry or Connect backing topic is never a repo
+		// reference gap, and must not be reported as an unused topic here
+		// either. Broker-internal topics stay under --exclude-internal.
+		if topic.IsManaged() && !topic.Internal && !includeManaged {
 			continue
 		}
 		clusterTopics[name] = topic

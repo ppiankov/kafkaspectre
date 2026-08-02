@@ -1,6 +1,9 @@
 package kafka
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // ClusterMetadata contains the complete metadata fetched from a Kafka cluster
 type ClusterMetadata struct {
@@ -8,6 +11,23 @@ type ClusterMetadata struct {
 	ConsumerGroups map[string]*ConsumerGroupInfo
 	Brokers        []BrokerInfo
 	FetchedAt      time.Time
+
+	// ConsumerGroupReadErrors names the consumer-group reads that failed. When
+	// non-empty the consumer-group picture is incomplete and "no consumers"
+	// cannot be distinguished from "could not read consumers".
+	//
+	// WO-27: a DescribeGroups failure previously left ConsumerGroups empty and
+	// the audit reported every topic in the cluster as unused with a delete
+	// recommendation. Callers must treat a degraded read as unusable for
+	// unused-topic verdicts rather than as evidence of absence.
+	ConsumerGroupReadErrors []string
+}
+
+// ConsumerGroupsComplete reports whether every consumer-group read succeeded.
+//
+// WO-27: unused-topic verdicts are only sound when this is true.
+func (m *ClusterMetadata) ConsumerGroupsComplete() bool {
+	return m != nil && len(m.ConsumerGroupReadErrors) == 0
 }
 
 // TopicInfo contains metadata about a Kafka topic
@@ -20,6 +40,23 @@ type TopicInfo struct {
 	Internal          bool // System topics like __consumer_offsets
 }
 
+// ManagedOwner reports which service owns this topic as backing store.
+//
+// WO-26: derived from the topic name at the point of use rather than stored on
+// the struct, so a caller that constructs a TopicInfo directly cannot end up
+// with an unclassified managed topic and a delete recommendation.
+func (t *TopicInfo) ManagedOwner() ManagedTopicOwner {
+	if t == nil {
+		return OwnerNone
+	}
+	return ManagedTopicOwnerFor(t.Name)
+}
+
+// IsManaged reports whether this topic is backing store for a known service.
+func (t *TopicInfo) IsManaged() bool {
+	return t.ManagedOwner() != OwnerNone
+}
+
 // ConsumerGroupInfo contains metadata about a Kafka consumer group
 type ConsumerGroupInfo struct {
 	GroupID     string
@@ -29,6 +66,26 @@ type ConsumerGroupInfo struct {
 	Lag         map[string]int64 // topic -> total lag
 	LastCommit  time.Time
 	Coordinator int32 // Broker ID
+}
+
+// abandonedGroupStates are the consumer-group states that carry no live members.
+var abandonedGroupStates = map[string]struct{}{
+	"empty": {},
+	"dead":  {},
+}
+
+// IsAbandoned reports whether the group has no live members and therefore does
+// not on its own make a topic active.
+//
+// WO-29: State was captured but never read, so an Empty or Dead group — the
+// very signal that a topic is no longer consumed — marked its topics ACTIVE and
+// hid them from the unused list.
+func (c *ConsumerGroupInfo) IsAbandoned() bool {
+	if c == nil {
+		return true
+	}
+	_, abandoned := abandonedGroupStates[strings.ToLower(strings.TrimSpace(c.State))]
+	return abandoned
 }
 
 // BrokerInfo contains metadata about a Kafka broker

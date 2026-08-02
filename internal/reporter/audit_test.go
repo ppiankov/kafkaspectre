@@ -28,8 +28,8 @@ func TestRiskLevel(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := riskLevel(tc.risk); got != tc.want {
-				t.Fatalf("riskLevel(%q) = %d, want %d", tc.risk, got, tc.want)
+			if got := RiskLevel(tc.risk); got != tc.want {
+				t.Fatalf("RiskLevel(%q) = %d, want %d", tc.risk, got, tc.want)
 			}
 		})
 	}

@@ -3,6 +3,7 @@ package reporter
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -23,6 +24,10 @@ type AuditResult struct {
 	UnusedCount   int
 	ActiveCount   int
 	InternalCount int
+
+	// Reliability records whether the underlying cluster reads were complete.
+	// WO-27: unused-topic findings are only actionable when they were.
+	Reliability ScanReliability
 }
 
 // AuditSummary provides high-level audit insights
@@ -75,6 +80,23 @@ type UnusedTopic struct {
 	Recommendation    string            `json:"recommendation"`
 	Risk              string            `json:"risk"`
 	CleanupPriority   int               `json:"cleanup_priority"`
+
+	// ManagedBy names the service that owns this topic as backing store.
+	// WO-26: a non-empty value means the topic must never be deleted.
+	ManagedBy string `json:"managed_by,omitempty"`
+
+	// AbandonedConsumerGroups lists groups that reference this topic but hold
+	// no live members. WO-29: these are why the topic reads as unused.
+	AbandonedConsumerGroups []string `json:"abandoned_consumer_groups,omitempty"`
+}
+
+// ScanReliability describes whether the scan saw a complete cluster picture.
+//
+// WO-27: without this a degraded read is indistinguishable from a clean scan,
+// and downstream consumers treat "could not read consumers" as "no consumers".
+type ScanReliability struct {
+	ConsumerGroupsComplete bool     `json:"consumer_groups_complete"`
+	ReadErrors             []string `json:"read_errors,omitempty"`
 }
 
 // ActiveTopic represents a topic with active consumers
@@ -89,6 +111,23 @@ type ActiveTopic struct {
 // Reporter interface extended with audit capabilities
 type AuditReporter interface {
 	GenerateAudit(ctx context.Context, result *AuditResult) error
+}
+
+// SortUnusedTopicsBySeverity orders unused topics by risk descending, then by
+// name. It is the single definition of severity ordering for this tool.
+//
+// WO-31: ordering used to live only inside the text reporter, so the JSON,
+// SARIF and SpectreHub outputs emitted name-ordered findings and downstream
+// consumers reading the first N findings got an alphabetical sample rather than
+// the high-risk ones. Callers apply this at the source; reporters may reapply
+// it because it is idempotent.
+func SortUnusedTopicsBySeverity(topics []*UnusedTopic) {
+	sort.SliceStable(topics, func(i, j int) bool {
+		if topics[i].Risk != topics[j].Risk {
+			return RiskLevel(topics[i].Risk) > RiskLevel(topics[j].Risk)
+		}
+		return topics[i].Name < topics[j].Name
+	})
 }
 
 // Helper functions
@@ -159,6 +198,7 @@ func BuildUnusedTopic(topic *kafka.TopicInfo, reason, recommendation, risk strin
 	retentionMs := topic.Config["retention.ms"]
 
 	return &UnusedTopic{
+		ManagedBy:         string(topic.ManagedOwner()),
 		Name:              topic.Name,
 		Partitions:        topic.Partitions,
 		ReplicationFactor: topic.ReplicationFactor,
