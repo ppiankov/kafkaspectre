@@ -2,6 +2,37 @@
 
 After running KafkaSpectre audit, use this guide to safely clean up unused topics.
 
+### ⚠️ Precondition: never act on an incomplete scan
+
+**Every command in this guide assumes the audit that produced
+`audit-report.json` read the cluster completely.** If it did not, "no consumer
+groups" means "could not tell", not "unused" — and acting on it deletes topics
+that are actively consumed.
+
+Check this once, before anything else in this document:
+
+```bash
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — findings are unverified. Re-run before deleting." >&2
+  exit 1
+}
+```
+
+On a degraded scan every finding carries the recommendation
+*"Do not act on this finding — re-run once the cluster is fully readable"*, and
+`summary.recommended_cleanup_topics` is empty.
+
+**Service backing topics are already excluded.** Schema Registry (`_schemas`),
+Kafka Connect, MirrorMaker 2, and Kafka Streams changelog/repartition topics
+never appear in `unused_topics` — they are reported separately under
+`managed_topics`, and `summary.managed_topics_held_out` counts them. So the jq
+pipelines below cannot select one, in any mode. Deleting `_schemas` destroys
+every registered schema in the cluster; the tool will not suggest it.
+
+If your deployment renames its backing topics (a Connect worker with
+`docker-connect-configs`, a custom Streams application ID), declare the patterns
+under `managed_topics` in `.kafkaspectre.yaml` so they are protected too.
+
 ### ⚠️ Safety First
 
 **Before deleting ANY topic:**
@@ -280,7 +311,14 @@ jq -r '.unused_topics[] | select(.risk == "medium") |
 less medium-risk-topics.txt
 
 # Extract just names for deletion
-jq -r '.unused_topics[] | select(.risk == "medium") | .name' \
+# Same two gates as the low-risk path: refuse a degraded scan, skip managed
+# topics. `risk` measures topic size, not blast radius.
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — do not delete." >&2; exit 1; }
+
+jq -r '.unused_topics[]
+       | select(.managed_by == null and .risk == "medium")
+       | .name' \
   audit-report.json > medium-risk-names.txt
 
 # Delete after review

@@ -547,7 +547,8 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 	activeTopics := make([]*reporter.ActiveTopic, 0)
 
 	internalTopics := 0
-	managedTopics := 0
+	managedHeldOut := 0
+	managedTopics := make([]*reporter.UnusedTopic, 0)
 	totalTopics := 0
 	totalPartitions := 0
 	unusedPartitions := 0
@@ -572,7 +573,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		// governed by --exclude-internal, and overriding that would silently
 		// change the meaning of an existing flag.
 		if topic.IsManaged() && !topic.Internal && !includeManaged {
-			managedTopics++
+			managedHeldOut++
 			continue
 		}
 
@@ -585,6 +586,16 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 			recommendation := unusedRecommendation(topic, risk, consumerDataComplete)
 			unused := reporter.BuildUnusedTopic(topic, unusedReason(topic, abandonedByTopic[topic.Name], consumerDataComplete), recommendation, risk, priority)
 			unused.AbandonedConsumerGroups = abandonedByTopic[topic.Name]
+
+			// Round 2: a managed topic having no consumer group is its normal
+			// steady state, not a finding. Counting it inflated the unused
+			// statistics, the savings pitch and the health score, and made a
+			// healthy cluster exit 6 because of __consumer_offsets.
+			if topic.IsManaged() {
+				managedTopics = append(managedTopics, unused)
+				continue
+			}
+
 			unusedTopics = append(unusedTopics, unused)
 			unusedPartitions += topic.Partitions
 			switch risk {
@@ -605,6 +616,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 	// SpectreHub reporters inherit severity order too. Previously only the text
 	// reporter re-sorted, leaving every machine-consumed output name-ordered.
 	reporter.SortUnusedTopicsBySeverity(unusedTopics)
+	reporter.SortUnusedTopicsBySeverity(managedTopics)
 	sort.Slice(activeTopics, func(i, j int) bool {
 		return activeTopics[i].Name < activeTopics[j].Name
 	})
@@ -641,6 +653,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		HighRiskCount:                highRisk,
 		MediumRiskCount:              mediumRisk,
 		LowRiskCount:                 lowRisk,
+		ManagedTopicsHeldOut:         managedHeldOut,
 		RecommendedCleanup:           recommendedCleanup(unusedTopics, 10, consumerDataComplete),
 		ClusterHealthScore:           clusterHealthScore(unusedPercent),
 		PotentialSavingsInfo:         fmt.Sprintf("%d unused topics representing %d partitions (%.1f%% of total partitions)", unusedCount, unusedPartitions, unusedPartitionsPercent),
@@ -649,6 +662,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 	return &reporter.AuditResult{
 		Summary:       summary,
 		UnusedTopics:  unusedTopics,
+		ManagedTopics: managedTopics,
 		ActiveTopics:  activeTopics,
 		Metadata:      metadata,
 		TotalTopics:   totalTopics,
@@ -786,12 +800,6 @@ func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.Clu
 		if shouldExcludeTopic(name, excludeTopics) {
 			continue
 		}
-		// WO-26: a Schema Registry or Connect backing topic is never a repo
-		// reference gap, and must not be reported as an unused topic here
-		// either. Broker-internal topics stay under --exclude-internal.
-		if topic.IsManaged() && !topic.Internal && !includeManaged {
-			continue
-		}
 		clusterTopics[name] = topic
 	}
 
@@ -800,22 +808,41 @@ func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.Clu
 		if shouldExcludeTopic(topic, excludeTopics) {
 			continue
 		}
-		// WO-42: the hold-out must apply to BOTH sides of the union. Filtering
-		// only clusterTopics made a managed topic referenced in the repo
-		// reappear with inCluster=false and get reported MISSING_IN_CLUSTER —
-		// newly reachable because .properties scanning picks up Connect worker
-		// keys like offset.storage.topic.
-		if kafka.ManagedTopicOwnerFor(topic) != kafka.OwnerNone && !includeManaged {
-			continue
-		}
 		repoTopics[topic] = ref
+	}
+
+	// heldOut reports whether a managed topic should be dropped from the union.
+	//
+	// WO-42 originally filtered the repo side unconditionally, which had two
+	// faults. It used a different predicate from the cluster side (missing the
+	// !Internal companion), so a repo reference to __consumer_offsets became a
+	// false UNREFERENCED_IN_REPO. And it suppressed the GENUINE case: a Connect
+	// worker pointing at a backing topic that was never created is a real
+	// MISSING_IN_CLUSTER finding worth keeping. A managed topic is only
+	// uninteresting once we have confirmed it exists.
+	heldOut := func(name string, topic *kafka.TopicInfo) bool {
+		if includeManaged {
+			return false
+		}
+		if topic == nil || !topic.IsManaged() || topic.Internal {
+			return false
+		}
+		return true
 	}
 
 	allTopics := make(map[string]struct{}, len(clusterTopics)+len(repoTopics))
 	for topic := range repoTopics {
+		// A managed topic confirmed present in the cluster needs no report; one
+		// that is referenced but ABSENT is a genuine missing-topic finding.
+		if _, inCluster := clusterTopics[topic]; inCluster && heldOut(topic, clusterTopics[topic]) {
+			continue
+		}
 		allTopics[topic] = struct{}{}
 	}
 	for topic := range clusterTopics {
+		if heldOut(topic, clusterTopics[topic]) {
+			continue
+		}
 		allTopics[topic] = struct{}{}
 	}
 

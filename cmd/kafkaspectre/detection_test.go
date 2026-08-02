@@ -28,6 +28,20 @@ func unusedByName(result *reporter.AuditResult, name string) *reporter.UnusedTop
 	return nil
 }
 
+// managedByName looks up a topic in the managed bucket.
+//
+// Round 2: managed topics are reported separately from unused findings, because
+// a backing topic having no consumer group is its steady state rather than
+// something to act on.
+func managedByName(result *reporter.AuditResult, name string) *reporter.UnusedTopic {
+	for _, managed := range result.ManagedTopics {
+		if managed.Name == name {
+			return managed
+		}
+	}
+	return nil
+}
+
 // WO-26: the motivating case. `_schemas` is the Confluent Schema Registry
 // backing store; deleting it destroys every registered schema in the cluster
 // and is not recoverable from Kafka. It has no consumer groups, so before this
@@ -75,7 +89,7 @@ func TestIncludeManagedSurfacesTopicsWithDoNotDeleteAdvice(t *testing.T) {
 
 	result := buildAuditResultWithOptions(metadata, false, nil, true)
 
-	schemas := unusedByName(result, "_schemas")
+	schemas := managedByName(result, "_schemas")
 	if schemas == nil {
 		t.Fatal("--include-managed should surface _schemas")
 	}

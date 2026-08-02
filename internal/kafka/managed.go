@@ -36,7 +36,6 @@ var exactManagedTopics = map[string]ManagedTopicOwner{
 	"connect-configs": OwnerConnect,
 	"connect-offsets": OwnerConnect,
 	"connect-status":  OwnerConnect,
-	"heartbeats":      OwnerMirrorMaker,
 }
 
 // managedTopicPrefixes maps topic name prefixes to the owning service. Order
@@ -63,11 +62,19 @@ var managedTopicSuffixes = []struct {
 }{
 	{"-changelog", OwnerStreams},
 	{"-repartition", OwnerStreams},
+	// A topic legitimately named `orders-changelog` in a shop that runs no
+	// Streams app is held out by this rule. summary.managed_topics_held_out
+	// names how many topics that affected so the hold-out is discoverable.
 	{".checkpoints.internal", OwnerMirrorMaker},
 }
 
 // managedTopicPrefixes2 covers MirrorMaker 2 internals, which use dotted
 // cluster-qualified names rather than a single fixed prefix.
+//
+// `heartbeats` is deliberately NOT matched: MirrorMaker uses that bare name, but
+// so do many ordinary applications, and silently holding a user topic out of the
+// audit is worse than listing a MirrorMaker one. Declare it via managed_topics
+// if your cluster runs MirrorMaker with default heartbeat naming.
 var mirrorMakerPrefixes = []string{"mm2-offsets.", "mm2-configs.", "mm2-status."}
 
 // extraManagedPatterns holds operator-declared glob patterns for backing topics

@@ -145,27 +145,32 @@ func TestBuildAuditResult(t *testing.T) {
 		if result.TotalTopics != 5 || result.InternalCount != 1 {
 			t.Fatalf("topic counts mismatch: total=%d internal=%d", result.TotalTopics, result.InternalCount)
 		}
-		if result.ActiveCount != 1 || result.UnusedCount != 4 {
+		// Round 2: __internal is analysed (--exclude-internal is off) and listed
+		// under ManagedTopics, but a broker backing topic having no consumer
+		// group is its steady state, not a finding. Counting it made a healthy
+		// cluster exit 6 and advertised its partitions as reclaimable.
+		if result.ActiveCount != 1 || result.UnusedCount != 3 {
 			t.Fatalf("active/unused mismatch: active=%d unused=%d", result.ActiveCount, result.UnusedCount)
+		}
+		if len(result.ManagedTopics) != 1 || result.ManagedTopics[0].Name != "__internal" {
+			t.Fatalf("managed topics = %+v, want [__internal]", result.ManagedTopics)
 		}
 
 		if result.Summary.InternalTopics != 0 {
 			t.Fatalf("summary internal topics = %d, want 0 when not excluded", result.Summary.InternalTopics)
 		}
-		if result.Summary.TotalPartitions != 12 || result.Summary.UnusedPartitions != 9 {
+		if result.Summary.TotalPartitions != 12 || result.Summary.UnusedPartitions != 4 {
 			t.Fatalf("partition counts mismatch: total=%d unused=%d", result.Summary.TotalPartitions, result.Summary.UnusedPartitions)
 		}
-		if !approxEqual(result.Summary.UnusedPercentage, 80.0) {
-			t.Fatalf("unused percentage = %f, want 80.0", result.Summary.UnusedPercentage)
+		if !approxEqual(result.Summary.UnusedPercentage, 60.0) {
+			t.Fatalf("unused percentage = %f, want 60.0", result.Summary.UnusedPercentage)
 		}
-		if result.Summary.ClusterHealthScore != "critical" {
-			t.Fatalf("cluster health score = %q, want %q", result.Summary.ClusterHealthScore, "critical")
+		if result.Summary.ClusterHealthScore != "poor" {
+			t.Fatalf("cluster health score = %q, want %q", result.Summary.ClusterHealthScore, "poor")
 		}
 
-		// WO-39: __internal is still ANALYSED here (--exclude-internal is off)
-		// and still appears in UnusedTopics, but it must never be named for
-		// cleanup — its own recommendation is "DO NOT DELETE". This assertion
-		// previously required the contradiction.
+		// WO-39: nothing may be named for cleanup that the report forbids
+		// deleting.
 		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("recommended cleanup = %v, want %v", got, want)
 		}

@@ -174,13 +174,23 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	}
 
 	// Fetch consumer groups
+	// WO-43: ListGroups has the same partial-shard contract as DescribeGroups —
+	// kadm returns a populated map alongside a *ShardErrors when one broker is
+	// unreachable. Hard-aborting here discarded every group the other brokers
+	// returned and failed the whole command, so a single unreachable broker took
+	// out an audit that two thirds of the cluster could have answered.
 	var groups kadm.ListedGroups
 	if err := withRetry(ctx, "list consumer groups", func() error {
 		var groupErr error
 		groups, groupErr = i.admin.ListGroups(ctx)
 		return groupErr
 	}); err != nil {
-		return nil, fmt.Errorf("failed to list consumer groups: %w", err)
+		if len(groups) == 0 {
+			return nil, fmt.Errorf("failed to list consumer groups: %w", err)
+		}
+		slog.Warn("partial consumer group listing", "error", err, "listed_group_count", len(groups))
+		metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+			fmt.Sprintf("list consumer groups (partial, %d listed): %v", len(groups), err))
 	}
 
 	groupIDs := make([]string, 0, len(groups))

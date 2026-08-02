@@ -30,6 +30,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `--timeout 0` is rejected instead of being silently replaced by the default.
 - `docs/SKILL.md` and the README quick-start describe commands and flags that
   actually exist; tests now fail the build if they drift again.
+- Service backing topics are no longer counted as unused findings. A healthy
+  cluster used to exit 6 on default flags purely because of `__consumer_offsets`,
+  and advertise its partitions as reclaimable while labelling it DO NOT DELETE.
+  They are reported under `managed_topics` and counted by
+  `summary.managed_topics_held_out`.
+- `ListGroups` partial results are used instead of aborting the whole command
+  when one broker is unreachable.
+- `check` no longer reports a repo-referenced internal topic as
+  UNREFERENCED_IN_REPO, and still reports a managed topic that is referenced but
+  genuinely absent from the cluster.
 
 ### Added
 

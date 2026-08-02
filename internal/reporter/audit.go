@@ -25,6 +25,17 @@ type AuditResult struct {
 	ActiveCount   int
 	InternalCount int
 
+	// ManagedTopics lists service backing topics that have no consumer groups.
+	// They are reported for visibility but are NOT findings: they are excluded
+	// from UnusedCount, the partition statistics, the health score, and the
+	// exit code.
+	//
+	// Round 2: counting them as unused meant a healthy cluster exited 6 on
+	// default flags purely because of __consumer_offsets, and advertised 96%
+	// "reclaimable" partitions from a topic the same report labelled
+	// DO NOT DELETE.
+	ManagedTopics []*UnusedTopic
+
 	// Reliability records whether the underlying cluster reads were complete.
 	// WO-27: unused-topic findings are only actionable when they were.
 	Reliability ScanReliability
@@ -61,6 +72,11 @@ type AuditSummary struct {
 	// Recommendations
 	RecommendedCleanup []string `json:"recommended_cleanup_topics"`
 	ClusterHealthScore string   `json:"cluster_health_score"`
+
+	// ManagedTopicsHeldOut counts service backing topics excluded from the
+	// analysis. Round 2: the hold-out was previously invisible — topics and
+	// their partitions vanished from every total with nothing naming them.
+	ManagedTopicsHeldOut int `json:"managed_topics_held_out"`
 
 	// Stakeholder Metrics
 	PotentialSavingsInfo string `json:"potential_savings_info"`

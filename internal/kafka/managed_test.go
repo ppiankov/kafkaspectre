@@ -109,7 +109,9 @@ func TestManagedTopicSuffixesAndMirrorMaker(t *testing.T) {
 		{name: "mm2-configs", topic: "mm2-configs.us-east.internal", want: OwnerMirrorMaker},
 		{name: "mm2-status", topic: "mm2-status.us-east.internal", want: OwnerMirrorMaker},
 		{name: "checkpoints", topic: "us-east.checkpoints.internal", want: OwnerMirrorMaker},
-		{name: "heartbeats", topic: "heartbeats", want: OwnerMirrorMaker},
+		// `heartbeats` is intentionally NOT matched — too common an ordinary
+		// topic name to swallow silently. Declare it via managed_topics.
+		{name: "bare-heartbeats-not-matched", topic: "heartbeats", want: OwnerNone},
 
 		// Ordinary topics that merely contain a similar word must not match.
 		{name: "changelog-in-middle", topic: "user-changelog-events", want: OwnerNone},
