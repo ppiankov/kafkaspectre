@@ -11,13 +11,14 @@
 - Connects to Kafka and identifies unused, orphaned, and misconfigured topics
 - Scans code repositories for topic references and compares against live cluster state
 - Risk-scores cleanup recommendations by partition count and replication factor
-- Detects consumer group lag and abandoned consumers
+- Flags topics whose only consumer groups are abandoned — no live members
+- Refuses to recommend deleting Schema Registry, Connect, and other managed topics
 - Outputs text, JSON, SARIF, and SpectreHub formats
 
 ## What it is NOT
 
 - Not a monitoring dashboard — point-in-time auditor
-- Not a consumer lag alerting system
+- Not a consumer lag alerting system — it reads consumer group metadata, never lag or throughput
 - Not a topic management UI
 - Not a replacement for Kafka's built-in admin tools
 
@@ -30,6 +31,12 @@ brew tap ppiankov/tap
 brew install kafkaspectre
 ```
 
+### Windows
+
+Download the `kafkaspectre_<version>_windows_<arch>.zip` archive from the
+[releases page](https://github.com/ppiankov/kafkaspectre/releases), extract it,
+and put `kafkaspectre.exe` somewhere on your `PATH`.
+
 ### From source
 
 ```sh
@@ -41,7 +48,7 @@ make build
 ### Usage
 
 ```sh
-kafkaspectre audit --brokers localhost:9092 --format json
+kafkaspectre audit --bootstrap-server localhost:9092 --output json
 ```
 
 ## CLI commands

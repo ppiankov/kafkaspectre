@@ -2,6 +2,37 @@
 
 After running KafkaSpectre audit, use this guide to safely clean up unused topics.
 
+### ⚠️ Precondition: never act on an incomplete scan
+
+**Every command in this guide assumes the audit that produced
+`audit-report.json` read the cluster completely.** If it did not, "no consumer
+groups" means "could not tell", not "unused" — and acting on it deletes topics
+that are actively consumed.
+
+Check this once, before anything else in this document:
+
+```bash
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — findings are unverified. Re-run before deleting." >&2
+  exit 1
+}
+```
+
+On a degraded scan every finding carries the recommendation
+*"Do not act on this finding — re-run once the cluster is fully readable"*, and
+`summary.recommended_cleanup_topics` is empty.
+
+**Service backing topics are already excluded.** Schema Registry (`_schemas`),
+Kafka Connect, MirrorMaker 2, and Kafka Streams changelog/repartition topics
+never appear in `unused_topics` — they are reported separately under
+`managed_topics`, and `summary.managed_topics_held_out` counts them. So the jq
+pipelines below cannot select one, in any mode. Deleting `_schemas` destroys
+every registered schema in the cluster; the tool will not suggest it.
+
+If your deployment renames its backing topics (a Connect worker with
+`docker-connect-configs`, a custom Streams application ID), declare the patterns
+under `managed_topics` in `.kafkaspectre.yaml` so they are protected too.
+
 ### ⚠️ Safety First
 
 **Before deleting ANY topic:**
@@ -31,14 +62,42 @@ jq '.summary' audit-report.json
 
 #### Step 2: Filter by Risk Level
 
-Extract low-risk topics recommended for cleanup:
+Extract low-risk topics recommended for cleanup. Two gates come first, and both
+matter more than the risk score:
+
+- `reliability.consumer_groups_complete` — if this is `false` the scan could not
+  read consumer groups, so "no consumers" means "could not tell", not "unused".
+  Every finding from such a scan is unverified. Re-run; do not delete.
+- `managed_by` — a topic with this field is backing store for a live service
+  (Schema Registry, Connect, MirrorMaker 2, Kafka Streams). Deleting one
+  destroys that service's state. These are held out of the audit by default and
+  only appear if you passed `--include-managed`.
+
+`risk` measures topic SIZE, not blast radius. A one-partition topic scores low
+whether it holds throwaway test data or your entire schema registry.
 
 ```bash
-# Get low-risk topics only
-jq -r '.unused_topics[] | select(.risk == "low") | .name' audit-report.json > low-risk-topics.txt
+# Refuse outright if the scan was degraded
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — findings are unverified. Re-run before deleting." >&2
+  exit 1
+}
+
+# Get low-risk, non-managed topics only
+jq -r '.unused_topics[]
+       | select(.managed_by == null and .risk == "low")
+       | .name' audit-report.json > low-risk-topics.txt
 
 # Review the list
 cat low-risk-topics.txt
+```
+
+Simpler and more robust: let the tool decide. `recommendation` already encodes
+every safety verdict, and `summary.recommended_cleanup_topics` is empty whenever
+the scan was degraded.
+
+```bash
+jq -r '.summary.recommended_cleanup_topics[]' audit-report.json > low-risk-topics.txt
 ```
 
 #### Step 3: Create Deletion Script
@@ -206,8 +265,13 @@ return "medium"       // Everything else
 
 **Extract and delete:**
 ```bash
-# Extract low-risk topics
-jq -r '.unused_topics[] | select(.risk == "low") | .name' \
+# Extract low-risk topics — refuse a degraded scan, skip managed topics
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — do not delete." >&2; exit 1; }
+
+jq -r '.unused_topics[]
+       | select(.managed_by == null and .risk == "low")
+       | .name' \
   audit-report.json > low-risk-topics.txt
 
 # Count them
@@ -247,7 +311,14 @@ jq -r '.unused_topics[] | select(.risk == "medium") |
 less medium-risk-topics.txt
 
 # Extract just names for deletion
-jq -r '.unused_topics[] | select(.risk == "medium") | .name' \
+# Same two gates as the low-risk path: refuse a degraded scan, skip managed
+# topics. `risk` measures topic size, not blast radius.
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — do not delete." >&2; exit 1; }
+
+jq -r '.unused_topics[]
+       | select(.managed_by == null and .risk == "medium")
+       | .name' \
   audit-report.json > medium-risk-names.txt
 
 # Delete after review
@@ -370,8 +441,13 @@ jq '.summary | {
   total_unused: .unused_topics
 }' audit-report.json
 
-# 3. Start with low-risk (safest)
-jq -r '.unused_topics[] | select(.risk == "low") | .name' \
+# 3. Start with low-risk (safest) — never on a degraded scan, never managed
+jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+  echo "Scan was incomplete — do not delete." >&2; exit 1; }
+
+jq -r '.unused_topics[]
+       | select(.managed_by == null and .risk == "low")
+       | .name' \
   audit-report.json | \
   while read topic; do
     kafkactl delete topic "$topic"
@@ -671,8 +747,18 @@ jobs:
       - name: Create Cleanup PR
         if: ${{ success() }}
         run: |
-          # Extract low-risk topics
-          jq -r '.unused_topics[] | select(.risk == "low") | .name' audit-report.json > cleanup-list.txt
+          # Fail closed: a degraded scan must never open a cleanup PR.
+          jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
+            echo "Scan was incomplete — refusing to open a cleanup PR." >&2
+            exit 1
+          }
+
+          # recommended_cleanup_topics excludes managed topics and is empty on
+          # a degraded scan, so it is the safe source for automation.
+          jq -r '.summary.recommended_cleanup_topics[]' audit-report.json > cleanup-list.txt
+
+          # Nothing to do is a success, not an empty PR.
+          [ -s cleanup-list.txt ] || { echo "No cleanup candidates."; exit 0; }
 
           # Create PR with cleanup recommendations
           gh pr create \

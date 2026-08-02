@@ -129,7 +129,9 @@ func TestBuildAuditResult(t *testing.T) {
 		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("recommended cleanup = %v, want %v", got, want)
 		}
-		if got, want := unusedNames(result.UnusedTopics), []string{"high-topic", "low-topic", "medium-topic"}; !reflect.DeepEqual(got, want) {
+		// WO-31: unused topics are ordered by risk descending at the source so
+		// every reporter inherits severity order, not just the text reporter.
+		if got, want := unusedNames(result.UnusedTopics), []string{"high-topic", "medium-topic", "low-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("unused topic order = %v, want %v", got, want)
 		}
 		if len(result.ActiveTopics) != 1 || result.ActiveTopics[0].ConsumerCount != 2 {
@@ -140,27 +142,37 @@ func TestBuildAuditResult(t *testing.T) {
 	t.Run("include-internal", func(t *testing.T) {
 		result := buildAuditResult(newMetadata(), false, nil)
 
-		if result.TotalTopics != 5 || result.InternalCount != 1 {
+		// __internal is managed-bucketed, so analyzed excludes it.
+		if result.TotalTopics != 4 || result.InternalCount != 1 {
 			t.Fatalf("topic counts mismatch: total=%d internal=%d", result.TotalTopics, result.InternalCount)
 		}
-		if result.ActiveCount != 1 || result.UnusedCount != 4 {
+		// Round 2: __internal is analysed (--exclude-internal is off) and listed
+		// under ManagedTopics, but a broker backing topic having no consumer
+		// group is its steady state, not a finding. Counting it made a healthy
+		// cluster exit 6 and advertised its partitions as reclaimable.
+		if result.ActiveCount != 1 || result.UnusedCount != 3 {
 			t.Fatalf("active/unused mismatch: active=%d unused=%d", result.ActiveCount, result.UnusedCount)
+		}
+		if result.Summary.ManagedTopicsHeldOut != 1 {
+			t.Fatalf("managed_topics_held_out = %d, want 1 (__internal)", result.Summary.ManagedTopicsHeldOut)
 		}
 
 		if result.Summary.InternalTopics != 0 {
 			t.Fatalf("summary internal topics = %d, want 0 when not excluded", result.Summary.InternalTopics)
 		}
-		if result.Summary.TotalPartitions != 12 || result.Summary.UnusedPartitions != 9 {
+		if result.Summary.TotalPartitions != 7 || result.Summary.UnusedPartitions != 4 {
 			t.Fatalf("partition counts mismatch: total=%d unused=%d", result.Summary.TotalPartitions, result.Summary.UnusedPartitions)
 		}
-		if !approxEqual(result.Summary.UnusedPercentage, 80.0) {
-			t.Fatalf("unused percentage = %f, want 80.0", result.Summary.UnusedPercentage)
+		if !approxEqual(result.Summary.UnusedPercentage, 75.0) {
+			t.Fatalf("unused percentage = %f, want 75.0", result.Summary.UnusedPercentage)
 		}
-		if result.Summary.ClusterHealthScore != "critical" {
-			t.Fatalf("cluster health score = %q, want %q", result.Summary.ClusterHealthScore, "critical")
+		if result.Summary.ClusterHealthScore != "poor" {
+			t.Fatalf("cluster health score = %q, want %q", result.Summary.ClusterHealthScore, "poor")
 		}
 
-		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "__internal", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
+		// WO-39: nothing may be named for cleanup that the report forbids
+		// deleting.
+		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("recommended cleanup = %v, want %v", got, want)
 		}
 	})
@@ -354,10 +366,11 @@ func TestNormalizeExcludePatterns(t *testing.T) {
 	}
 }
 
+// WO-34: config defaults applied
 func TestResolveAuditOptionsFromConfig(t *testing.T) {
 	workingDir := t.TempDir()
 	withWorkingDir(t, workingDir)
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	configFile := filepath.Join(workingDir, config.DefaultFileName)
 	content := `bootstrap_servers: config:9092
@@ -398,10 +411,11 @@ timeout: 45s
 	}
 }
 
+// WO-34: flags override config
 func TestResolveAuditOptionsFlagsOverrideConfig(t *testing.T) {
 	workingDir := t.TempDir()
 	withWorkingDir(t, workingDir)
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	configFile := filepath.Join(workingDir, config.DefaultFileName)
 	content := `bootstrap_servers: config:9092
@@ -517,6 +531,7 @@ func TestRecommendationForRisk(t *testing.T) {
 	}
 }
 
+// WO-39: cleanup ordering and filtering
 func TestRecommendedCleanup(t *testing.T) {
 	unused := []*reporter.UnusedTopic{
 		{Name: "z-low", CleanupPriority: 1, Risk: "low"},
@@ -525,17 +540,17 @@ func TestRecommendedCleanup(t *testing.T) {
 		{Name: "m-high", CleanupPriority: 2, Risk: "high"},
 	}
 
-	if got := recommendedCleanup(nil, 5); got != nil {
-		t.Fatalf("recommendedCleanup(nil, 5) = %v, want nil", got)
+	if got := recommendedCleanup(nil, 5, true); got != nil {
+		t.Fatalf("recommendedCleanup(nil, 5, true) = %v, want nil", got)
 	}
-	if got := recommendedCleanup(unused, 0); got != nil {
-		t.Fatalf("recommendedCleanup(unused, 0) = %v, want nil", got)
+	if got := recommendedCleanup(unused, 0, true); got != nil {
+		t.Fatalf("recommendedCleanup(unused, 0, true) = %v, want nil", got)
 	}
 
-	got := recommendedCleanup(unused, 3)
+	got := recommendedCleanup(unused, 3, true)
 	want := []string{"a-low", "z-low", "m-high"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("recommendedCleanup(unused, 3) = %v, want %v", got, want)
+		t.Fatalf("recommendedCleanup(unused, 3, true) = %v, want %v", got, want)
 	}
 }
 

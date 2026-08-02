@@ -22,9 +22,13 @@ type Scanner interface {
 }
 
 // Result contains discovered topic references and scan metadata.
+// WO-35: scan result with skipped file count
 type Result struct {
-	RepoPath     string                     `json:"repo_path"`
-	FilesScanned int                        `json:"files_scanned"`
+	RepoPath     string `json:"repo_path"`
+	FilesScanned int    `json:"files_scanned"`
+	// FilesSkipped counts files whose extension the scanner does not support.
+	// WO-35: distinguishes "repo has no topics" from "repo is all unsupported".
+	FilesSkipped int                        `json:"files_skipped"`
 	Topics       map[string]*TopicReference `json:"topics"`
 }
 
@@ -46,6 +50,9 @@ const (
 	SourceYAMLJSON = "yaml_json"
 	SourceEnv      = "env"
 	SourceRegex    = "source_regex"
+	// SourceProperties marks references found in a .properties file.
+	// WO-35: Kafka's own native config format.
+	SourceProperties = "properties"
 )
 
 type scanMode int
@@ -55,6 +62,7 @@ const (
 	scanConfig
 	scanEnv
 	scanSource
+	scanProperties
 )
 
 var (
@@ -135,6 +143,10 @@ func (s *RepoScanner) Scan(ctx context.Context, repoPath string) (*Result, error
 
 		mode := detectScanMode(path)
 		if mode == scanNone {
+			// WO-35: a zero-topic result used to be indistinguishable from
+			// "every file had an unsupported extension". Count what was skipped
+			// so the operator can tell those two apart.
+			result.FilesSkipped++
 			return nil
 		}
 
@@ -166,6 +178,8 @@ func (s *RepoScanner) Scan(ctx context.Context, repoPath string) (*Result, error
 			refs, err = scanEnvFile(content)
 		case scanSource:
 			refs, err = scanSourceFile(content)
+		case scanProperties:
+			refs, err = scanPropertiesFile(content)
 		default:
 			return nil
 		}
@@ -206,6 +220,13 @@ func (s *RepoScanner) shouldSkipDir(name string) bool {
 	return skip
 }
 
+// detectScanMode decides how, if at all, a file should be scanned.
+//
+// WO-35: `.properties` is Kafka's own native configuration format — Spring Boot
+// Kafka apps, Kafka Connect connector configs, and Kafka's own consumer and
+// producer configs all use it. Omitting it meant topics referenced only there
+// were classified UNREFERENCED_IN_REPO and fed the unused-topic findings.
+// WO-35: recognize .properties and added extensions
 func detectScanMode(path string) scanMode {
 	base := strings.ToLower(filepath.Base(path))
 	ext := strings.ToLower(filepath.Ext(path))
@@ -213,9 +234,12 @@ func detectScanMode(path string) scanMode {
 	switch {
 	case base == ".env" || strings.HasPrefix(base, ".env."):
 		return scanEnv
+	case ext == ".properties":
+		return scanProperties
 	case ext == ".yaml" || ext == ".yml" || ext == ".json":
 		return scanConfig
-	case ext == ".go" || ext == ".py" || ext == ".java":
+	case ext == ".go" || ext == ".py" || ext == ".java",
+		ext == ".kt" || ext == ".scala" || ext == ".ts" || ext == ".js":
 		return scanSource
 	default:
 		return scanNone
@@ -298,6 +322,48 @@ func scanEnvFile(content []byte) ([]Reference, error) {
 		value := strings.TrimSpace(stripInlineComment(match[2]))
 		for _, topic := range extractTopicCandidates(value) {
 			refs = append(refs, Reference{Topic: topic, Line: lineNo, Source: SourceEnv})
+		}
+	}
+
+	if err := lines.Err(); err != nil {
+		return nil, err
+	}
+
+	return refs, nil
+}
+
+// propertiesLinePattern matches a `key=value` or `key:value` properties entry.
+// Keys may be dotted or hyphenated, e.g. spring.kafka.template.default-topic.
+var propertiesLinePattern = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_.\-]*)\s*[:=]\s*(.*)$`)
+
+// scanPropertiesFile extracts topic references from a .properties file.
+//
+// WO-35: keys are matched on containing "topic" so both plain `topic=orders`
+// and namespaced `spring.kafka.template.default-topic=orders` are picked up.
+func scanPropertiesFile(content []byte) ([]Reference, error) {
+	lines := bufio.NewScanner(bytes.NewReader(content))
+	lines.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+
+	refs := make([]Reference, 0)
+
+	for lineNo := 1; lines.Scan(); lineNo++ {
+		line := strings.TrimSpace(lines.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
+			continue
+		}
+
+		match := propertiesLinePattern.FindStringSubmatch(line)
+		if len(match) != 3 {
+			continue
+		}
+
+		if !strings.Contains(strings.ToLower(match[1]), "topic") {
+			continue
+		}
+
+		value := strings.TrimSpace(stripInlineComment(match[2]))
+		for _, topic := range extractTopicCandidates(value) {
+			refs = append(refs, Reference{Topic: topic, Line: lineNo, Source: SourceProperties})
 		}
 	}
 

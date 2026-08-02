@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -173,13 +174,23 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	}
 
 	// Fetch consumer groups
+	// WO-43: ListGroups has the same partial-shard contract as DescribeGroups —
+	// kadm returns a populated map alongside a *ShardErrors when one broker is
+	// unreachable. Hard-aborting here discarded every group the other brokers
+	// returned and failed the whole command, so a single unreachable broker took
+	// out an audit that two thirds of the cluster could have answered.
 	var groups kadm.ListedGroups
 	if err := withRetry(ctx, "list consumer groups", func() error {
 		var groupErr error
 		groups, groupErr = i.admin.ListGroups(ctx)
 		return groupErr
 	}); err != nil {
-		return nil, fmt.Errorf("failed to list consumer groups: %w", err)
+		if len(groups) == 0 {
+			return nil, fmt.Errorf("failed to list consumer groups: %w", err)
+		}
+		slog.Warn("partial consumer group listing", "error", err, "listed_group_count", len(groups))
+		metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+			fmt.Sprintf("list consumer groups (partial, %d listed): %v", len(groups), err))
 	}
 
 	groupIDs := make([]string, 0, len(groups))
@@ -190,20 +201,43 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	if len(groupIDs) > 0 {
 		describedGroups, err := i.admin.DescribeGroups(ctx, groupIDs...)
 		if err != nil {
-			// Non-fatal: continue without consumer group details
+			// WO-27: this read is NOT cosmetic. Without it no topic gets a
+			// consumer attached and every topic looks unused, so record the
+			// failure instead of silently continuing with an empty picture.
 			slog.Warn("failed to describe consumer groups", "error", err, "consumer_group_count", len(groupIDs))
-		} else {
+			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+				fmt.Sprintf("describe consumer groups (%d groups): %v", len(groupIDs), err))
+		}
+		// WO-43: kadm returns BOTH a populated result and an error on a partial
+		// shard failure, so `described` must be consumed even when err != nil.
+		// Discarding it meant one unreachable coordinator blanked out consumer
+		// data for the whole cluster when most of it was readable. The read is
+		// still marked incomplete above — partial data never claims completeness.
+		{
 			for _, described := range describedGroups.Sorted() {
+				// WO-27: DescribeGroups can succeed overall while individual
+				// groups carry their own error. Such a group yields no topics,
+				// which would silently look like "this group consumes nothing".
+				if described.Err != nil {
+					slog.Warn("failed to describe consumer group", "error", described.Err, "group_id", described.Group)
+					metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+						fmt.Sprintf("describe group %q: %v", described.Group, described.Err))
+					continue
+				}
+
 				coordinator := int32(-1)
 				if described.Coordinator.NodeID != -1 {
 					coordinator = described.Coordinator.NodeID
 				}
 
 				metadata.ConsumerGroups[described.Group] = &ConsumerGroupInfo{
-					GroupID:     described.Group,
-					State:       described.State,
-					Members:     len(described.Members),
-					Topics:      []string{}, // Will be populated from offsets
+					GroupID: described.Group,
+					State:   described.State,
+					Members: len(described.Members),
+					// WO-28: seed from live member assignments so a group that
+					// holds partitions but has not committed offsets yet still
+					// marks its topics as consumed.
+					Topics:      assignedTopics(described),
 					Lag:         make(map[string]int64),
 					Coordinator: coordinator,
 				}
@@ -217,15 +251,23 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 				// Fetch offsets for this specific group
 				offsets, err := i.admin.FetchOffsets(ctx, groupID)
 				if err != nil {
-					// Non-fatal: skip this group
+					// WO-27: a bare `continue` here dropped the group's topics
+					// with no trace, turning a read failure into a false
+					// "unused topic" finding. Record and warn instead.
+					slog.Warn("failed to fetch consumer group offsets", "error", err, "group_id", groupID)
+					metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+						fmt.Sprintf("fetch offsets for group %q: %v", groupID, err))
 					continue
 				}
 
-				topicsSet := make(map[string]bool)
+				topicsSet := make(map[string]struct{}, len(groupInfo.Topics))
+				for _, topic := range groupInfo.Topics {
+					topicsSet[topic] = struct{}{}
+				}
 
 				// Iterate through the offset response
 				for topic := range offsets {
-					topicsSet[topic] = true
+					topicsSet[topic] = struct{}{}
 				}
 
 				// Convert topics set to list
@@ -233,6 +275,7 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 				for topic := range topicsSet {
 					topicList = append(topicList, topic)
 				}
+				sort.Strings(topicList)
 
 				groupInfo.Topics = topicList
 			}
@@ -240,6 +283,23 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 	}
 
 	return metadata, nil
+}
+
+// assignedTopics returns the topics a group's live members currently hold.
+//
+// WO-28: topic attribution previously came only from committed offsets, so a
+// group with live assignments but no commits yet — a consumer between rebalance
+// and first commit, or one storing offsets externally — contributed no topics
+// and its topics were reported unused.
+func assignedTopics(described kadm.DescribedGroup) []string {
+	assigned := described.AssignedPartitions()
+	topics := make([]string, 0, len(assigned))
+	for topic := range assigned {
+		topics = append(topics, topic)
+	}
+	sort.Strings(topics)
+
+	return topics
 }
 
 // buildSASL creates SASL authentication options based on the mechanism

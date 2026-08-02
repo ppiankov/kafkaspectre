@@ -16,7 +16,26 @@ const (
 	alternateName   = ".kafkaspectre.yml"
 )
 
+// WO-34: SASL credential environment variables
+const (
+	// UsernameEnvVar and PasswordEnvVar name the environment variables that
+	// supply SASL credentials.
+	//
+	// WO-34: auth_mechanism was configurable but its mandatory companions were
+	// not, so a config file naming a mechanism made EVERY invocation fail until
+	// the user also passed --username and --password. Credentials are read from
+	// the environment rather than the config file so a secured cluster can be
+	// expressed without writing a password to disk.
+	// WO-34: SASL credential environment variables
+	UsernameEnvVar = "KAFKASPECTRE_USERNAME"
+	PasswordEnvVar = "KAFKASPECTRE_PASSWORD"
+)
+
 // Config holds defaults loaded from .kafkaspectre.yaml.
+//
+// WO-34: this struct deliberately has no username or password field. Adding one
+// would invite credentials into a plaintext file on disk; use the environment
+// variables above instead.
 type Config struct {
 	BootstrapServers string
 	AuthMechanism    string
@@ -25,6 +44,25 @@ type Config struct {
 	Format           string
 	Timeout          time.Duration
 	HasTimeout       bool
+
+	TLSEnabled  *bool
+	TLSCertFile string
+	TLSKeyFile  string
+	TLSCAFile   string
+
+	// ManagedTopics are operator-declared glob patterns for backing topics this
+	// tool cannot recognise by name — renamed Connect topics, custom Streams
+	// application IDs. WO-41: name-based recognition is best-effort, so a
+	// deployment that renames its backing topics must be able to declare them.
+	ManagedTopics []string
+}
+
+// CredentialsFromEnv returns SASL credentials supplied via the environment.
+//
+// WO-34: the returned values are secrets. Callers must never log them.
+// WO-34: environment-sourced credentials
+func CredentialsFromEnv() (username, password string) {
+	return os.Getenv(UsernameEnvVar), os.Getenv(PasswordEnvVar)
 }
 
 // Load auto-discovers and loads a config file.
@@ -117,6 +155,7 @@ func loadOptionalPath(path string) (*Config, bool, error) {
 	return cfg, true, nil
 }
 
+// WO-33: YAML config parser with block lists
 func parse(data []byte) (*Config, error) {
 	cfg := &Config{}
 	text := strings.TrimPrefix(string(data), "\uFEFF")
@@ -172,6 +211,22 @@ func parse(data []byte) (*Config, error) {
 				return nil, fmt.Errorf("line %d: parse exclude_topics: %w", lineNum, err)
 			}
 			cfg.ExcludeTopics = append(cfg.ExcludeTopics, items...)
+		case "managed_topics":
+			if value == "" {
+				items, next, err := parseBlockList(lines, i+1)
+				if err != nil {
+					return nil, err
+				}
+				cfg.ManagedTopics = append(cfg.ManagedTopics, items...)
+				i = next - 1
+				continue
+			}
+
+			items, err := parseInlineList(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse managed_topics: %w", lineNum, err)
+			}
+			cfg.ManagedTopics = append(cfg.ManagedTopics, items...)
 		case "exclude_internal":
 			scalar, err := parseScalar(value)
 			if err != nil {
@@ -182,6 +237,40 @@ func parse(data []byte) (*Config, error) {
 				return nil, fmt.Errorf("line %d: parse exclude_internal as bool: %w", lineNum, err)
 			}
 			cfg.ExcludeInternal = &boolValue
+		case "tls":
+			scalar, err := parseScalar(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse tls: %w", lineNum, err)
+			}
+			boolValue, err := strconv.ParseBool(strings.TrimSpace(scalar))
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse tls as bool: %w", lineNum, err)
+			}
+			cfg.TLSEnabled = &boolValue
+		case "tls_cert":
+			scalar, err := parseScalar(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse tls_cert: %w", lineNum, err)
+			}
+			cfg.TLSCertFile = strings.TrimSpace(scalar)
+		case "tls_key":
+			scalar, err := parseScalar(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse tls_key: %w", lineNum, err)
+			}
+			cfg.TLSKeyFile = strings.TrimSpace(scalar)
+		case "tls_ca":
+			scalar, err := parseScalar(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse tls_ca: %w", lineNum, err)
+			}
+			cfg.TLSCAFile = strings.TrimSpace(scalar)
+		case "username", "password":
+			// WO-34: refuse credentials in the config file rather than silently
+			// ignoring them — a user who writes a password here must be told it
+			// will not be read, not left believing it works.
+			return nil, fmt.Errorf("line %d: %q must not be set in the config file; use the %s and %s environment variables",
+				lineNum, key, UsernameEnvVar, PasswordEnvVar)
 		case "format":
 			scalar, err := parseScalar(value)
 			if err != nil {
@@ -205,10 +294,18 @@ func parse(data []byte) (*Config, error) {
 	}
 
 	cfg.ExcludeTopics = normalizeList(cfg.ExcludeTopics)
+	cfg.ManagedTopics = normalizeList(cfg.ManagedTopics)
 
 	return cfg, nil
 }
 
+// parseBlockList reads a YAML block sequence following a list-valued key.
+//
+// WO-33: the list terminator used to be "line has no leading whitespace", which
+// also rejected the equally valid YAML form where sequence items sit at the
+// SAME indentation as their parent key. That made a legal config file fail with
+// "unexpected list item" and blocked every command until the user re-indented.
+// The terminator is now "line is not a sequence item", so both forms parse.
 func parseBlockList(lines []string, start int) ([]string, int, error) {
 	items := make([]string, 0)
 
@@ -221,15 +318,13 @@ func parseBlockList(lines []string, start int) ([]string, int, error) {
 			continue
 		}
 
-		// End of list, start of the next root-level key.
-		if line == strings.TrimLeft(line, " \t") {
+		// End of list, start of the next key. A sequence item at any
+		// indentation still belongs to this list.
+		if !strings.HasPrefix(trimmed, "-") {
 			return items, i, nil
 		}
 
-		item := strings.TrimLeft(line, " \t")
-		if !strings.HasPrefix(item, "-") {
-			return nil, 0, fmt.Errorf("line %d: invalid list item for exclude_topics", lineNum)
-		}
+		item := trimmed
 
 		item = strings.TrimSpace(strings.TrimPrefix(item, "-"))
 		if item == "" {

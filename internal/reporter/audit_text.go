@@ -36,6 +36,17 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 	writef("Kafka Cluster Audit Report\n")
 	writef("===========================\n\n")
 
+	// WO-27: a degraded read makes every unused-topic finding unreliable. Say
+	// so before the operator reads a single finding.
+	if !result.Reliability.ConsumerGroupsComplete {
+		writef("!! INCOMPLETE SCAN — consumer group data could not be fully read.\n")
+		writef("!! Unused-topic findings below are UNVERIFIED and must not be acted on.\n")
+		for _, readErr := range result.Reliability.ReadErrors {
+			writef("!!   %s\n", readErr)
+		}
+		writef("\n")
+	}
+
 	// Summary
 	writef("Summary:\n")
 	writef("========\n\n")
@@ -55,7 +66,10 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		writef("  Unused (no consumers):      %d (%.1f%%)\n",
 			result.Summary.UnusedTopics,
 			result.Summary.UnusedPercentage)
-		writef("  Internal (excluded):        %d\n\n", result.Summary.InternalTopics)
+		writef("  Internal (excluded):        %d\n", result.Summary.InternalTopics)
+		// Round 2: the hold-out used to be invisible — topics and their
+		// partitions vanished from every total with nothing naming them.
+		writef("  Service-managed (held out): %d\n\n", result.Summary.ManagedTopicsHeldOut)
 
 		// Partition statistics
 		writef("Partitions:\n")
@@ -91,19 +105,20 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		writef("Unused Topics (No Consumer Groups)\n")
 		writef("===================================\n\n")
 
-		// Sort by risk level then by name
+		// WO-31: severity ordering is applied at the source so every reporter
+		// inherits it. Reapplying the shared comparator here keeps the renderer
+		// correct for callers that construct an AuditResult directly; it is the
+		// same function, not a second definition of the ordering.
 		sortedUnused := make([]*UnusedTopic, len(result.UnusedTopics))
 		copy(sortedUnused, result.UnusedTopics)
-		sort.Slice(sortedUnused, func(i, j int) bool {
-			if sortedUnused[i].Risk != sortedUnused[j].Risk {
-				return riskLevel(sortedUnused[i].Risk) > riskLevel(sortedUnused[j].Risk)
-			}
-			return sortedUnused[i].Name < sortedUnused[j].Name
-		})
+		SortUnusedTopicsBySeverity(sortedUnused)
 
 		for _, unused := range sortedUnused {
 			writef("[UNUSED] %s\n", unused.Name)
 			writef("  Partitions: %d, Replication: %d\n", unused.Partitions, unused.ReplicationFactor)
+			if unused.ManagedBy != "" {
+				writef("  Managed By: %s\n", unused.ManagedBy)
+			}
 
 			// Display key configurations
 			if unused.RetentionHuman != "" {
@@ -117,6 +132,24 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 			writef("  Risk: %s\n", unused.Risk)
 			writef("  Recommendation: %s\n", unused.Recommendation)
 			writef("\n")
+		}
+	}
+
+	// Service-Managed Topics Section
+	//
+	// Round 2: these were moved out of the unused list because a backing topic
+	// having no consumer group is its steady state, not a finding. They must
+	// still be VISIBLE — silently omitting them would hide, for example, a
+	// Schema Registry topic the operator may want to know about.
+	if len(result.ManagedTopics) > 0 {
+		writef("Service-Managed Topics (not cleanup candidates)\n")
+		writef("================================================\n\n")
+
+		for _, managed := range result.ManagedTopics {
+			writef("[MANAGED] %s\n", managed.Name)
+			writef("  Owner: %s\n", managed.ManagedBy)
+			writef("  Partitions: %d, Replication: %d\n", managed.Partitions, managed.ReplicationFactor)
+			writef("  %s\n\n", managed.Recommendation)
 		}
 	}
 
@@ -184,8 +217,11 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 	return nil
 }
 
-// riskLevel converts risk string to numeric value for sorting
-func riskLevel(risk string) int {
+// RiskLevel converts risk string to numeric value for sorting.
+//
+// WO-31: exported so severity ordering has a single owner — the audit result
+// builder — instead of being re-implemented per reporter.
+func RiskLevel(risk string) int {
 	switch risk {
 	case "high":
 		return 3

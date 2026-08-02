@@ -31,6 +31,16 @@ func (r *CheckTextReporter) GenerateCheck(ctx context.Context, result *CheckResu
 	writef("Kafka Topic Check Report\n")
 	writef("========================\n\n")
 
+	// WO-38: say the scan was degraded before the operator reads any finding.
+	if !result.Reliability.ConsumerGroupsComplete {
+		writef("!! INCOMPLETE SCAN — consumer group data could not be fully read.\n")
+		writef("!! UNUSED findings below are UNVERIFIED and must not be acted on.\n")
+		for _, readErr := range result.Reliability.ReadErrors {
+			writef("!!   %s\n", readErr)
+		}
+		writef("\n")
+	}
+
 	if result.Summary != nil {
 		summary := result.Summary
 		writef("Summary:\n")

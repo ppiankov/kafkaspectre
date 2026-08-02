@@ -3,6 +3,7 @@ package reporter
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 )
 
 // AuditResult contains the results of a cluster audit
+// WO-26: audit result with managed topics and reliability
 type AuditResult struct {
 	Tool      string // tool identifier for SpectreHub compatibility
 	Version   string // tool version for SpectreHub compatibility
@@ -23,9 +25,25 @@ type AuditResult struct {
 	UnusedCount   int
 	ActiveCount   int
 	InternalCount int
+
+	// ManagedTopics lists service backing topics that have no consumer groups.
+	// They are reported for visibility but are NOT findings: they are excluded
+	// from UnusedCount, the partition statistics, the health score, and the
+	// exit code.
+	//
+	// Round 2: counting them as unused meant a healthy cluster exited 6 on
+	// default flags purely because of __consumer_offsets, and advertised 96%
+	// "reclaimable" partitions from a topic the same report labelled
+	// DO NOT DELETE.
+	ManagedTopics []*UnusedTopic
+
+	// Reliability records whether the underlying cluster reads were complete.
+	// WO-27: unused-topic findings are only actionable when they were.
+	Reliability ScanReliability
 }
 
 // AuditSummary provides high-level audit insights
+// WO-26: audit summary with managed hold-out counter
 type AuditSummary struct {
 	// Cluster Overview
 	ClusterName  string `json:"cluster_name"`
@@ -57,6 +75,11 @@ type AuditSummary struct {
 	RecommendedCleanup []string `json:"recommended_cleanup_topics"`
 	ClusterHealthScore string   `json:"cluster_health_score"`
 
+	// ManagedTopicsHeldOut counts service backing topics excluded from the
+	// analysis. Round 2: the hold-out was previously invisible — topics and
+	// their partitions vanished from every total with nothing naming them.
+	ManagedTopicsHeldOut int `json:"managed_topics_held_out"`
+
 	// Stakeholder Metrics
 	PotentialSavingsInfo string `json:"potential_savings_info"`
 }
@@ -75,6 +98,23 @@ type UnusedTopic struct {
 	Recommendation    string            `json:"recommendation"`
 	Risk              string            `json:"risk"`
 	CleanupPriority   int               `json:"cleanup_priority"`
+
+	// ManagedBy names the service that owns this topic as backing store.
+	// WO-26: a non-empty value means the topic must never be deleted.
+	ManagedBy string `json:"managed_by,omitempty"`
+
+	// AbandonedConsumerGroups lists groups that reference this topic but hold
+	// no live members. WO-29: these are why the topic reads as unused.
+	AbandonedConsumerGroups []string `json:"abandoned_consumer_groups,omitempty"`
+}
+
+// ScanReliability describes whether the scan saw a complete cluster picture.
+//
+// WO-27: without this a degraded read is indistinguishable from a clean scan,
+// and downstream consumers treat "could not read consumers" as "no consumers".
+type ScanReliability struct {
+	ConsumerGroupsComplete bool     `json:"consumer_groups_complete"`
+	ReadErrors             []string `json:"read_errors,omitempty"`
 }
 
 // ActiveTopic represents a topic with active consumers
@@ -89,6 +129,24 @@ type ActiveTopic struct {
 // Reporter interface extended with audit capabilities
 type AuditReporter interface {
 	GenerateAudit(ctx context.Context, result *AuditResult) error
+}
+
+// SortUnusedTopicsBySeverity orders unused topics by risk descending, then by
+// name. It is the single definition of severity ordering for this tool.
+//
+// WO-31: ordering used to live only inside the text reporter, so the JSON,
+// SARIF and SpectreHub outputs emitted name-ordered findings and downstream
+// consumers reading the first N findings got an alphabetical sample rather than
+// the high-risk ones. Callers apply this at the source; reporters may reapply
+// it because it is idempotent.
+// WO-31: single severity ordering definition
+func SortUnusedTopicsBySeverity(topics []*UnusedTopic) {
+	sort.SliceStable(topics, func(i, j int) bool {
+		if topics[i].Risk != topics[j].Risk {
+			return RiskLevel(topics[i].Risk) > RiskLevel(topics[j].Risk)
+		}
+		return topics[i].Name < topics[j].Name
+	})
 }
 
 // Helper functions
@@ -155,10 +213,12 @@ func FormatRetentionMs(retentionMs string) string {
 }
 
 // BuildUnusedTopic creates an UnusedTopic from TopicInfo with enhanced fields
+// WO-26: build unused topic with managed owner
 func BuildUnusedTopic(topic *kafka.TopicInfo, reason, recommendation, risk string, priority int) *UnusedTopic {
 	retentionMs := topic.Config["retention.ms"]
 
 	return &UnusedTopic{
+		ManagedBy:         string(topic.ManagedOwner()),
 		Name:              topic.Name,
 		Partitions:        topic.Partitions,
 		ReplicationFactor: topic.ReplicationFactor,

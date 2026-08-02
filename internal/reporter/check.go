@@ -50,6 +50,11 @@ type CheckResult struct {
 	Timestamp string          `json:"timestamp"`
 	Summary   *CheckSummary   `json:"summary"`
 	Findings  []*CheckFinding `json:"findings"`
+
+	// Reliability records whether the underlying cluster reads were complete.
+	// WO-38: without it the check path reported every topic as UNUSED after a
+	// failed consumer-group read, with no signal that anything went wrong.
+	Reliability ScanReliability `json:"reliability"`
 }
 
 // CheckReporter generates check command output.

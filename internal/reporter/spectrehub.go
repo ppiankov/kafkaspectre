@@ -10,6 +10,7 @@ import (
 )
 
 // SpectreHubEnvelope is the spectre/v1 cross-tool ingestion format.
+// WO-27: SpectreHub envelope with reliability
 type SpectreHubEnvelope struct {
 	Schema    string              `json:"schema"`
 	Tool      string              `json:"tool"`
@@ -18,6 +19,12 @@ type SpectreHubEnvelope struct {
 	Target    SpectreHubTarget    `json:"target"`
 	Findings  []SpectreHubFinding `json:"findings"`
 	Summary   SpectreHubSummary   `json:"summary"`
+
+	// Reliability tells the aggregator whether this scan saw a complete
+	// picture. WO-27: SpectreHub is the documented aggregation target, and
+	// without a structured signal it must regex the message prose to avoid
+	// treating a blind scan as authoritative.
+	Reliability ScanReliability `json:"reliability"`
 }
 
 // SpectreHubTarget describes the audited system.
@@ -64,6 +71,7 @@ func NewSpectreHubReporter(w io.Writer, bootstrapServer string) *SpectreHubRepor
 }
 
 // GenerateAudit emits audit findings as spectre/v1 JSON.
+// WO-27: SpectreHub audit with reliability
 func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResult) error {
 	envelope := SpectreHubEnvelope{
 		Schema:    "spectre/v1",
@@ -75,6 +83,8 @@ func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResul
 			URIHash: HashBootstrap(r.bootstrapServer),
 		},
 	}
+
+	envelope.Reliability = result.Reliability
 
 	if result.Summary != nil {
 		envelope.Target.Cluster = result.Summary.ClusterName
@@ -111,6 +121,7 @@ func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResul
 }
 
 // GenerateCheck emits check findings as spectre/v1 JSON.
+// WO-27: SpectreHub check with reliability
 func (r *SpectreHubReporter) GenerateCheck(_ context.Context, result *CheckResult) error {
 	envelope := SpectreHubEnvelope{
 		Schema:    "spectre/v1",
@@ -122,6 +133,8 @@ func (r *SpectreHubReporter) GenerateCheck(_ context.Context, result *CheckResul
 			URIHash: HashBootstrap(r.bootstrapServer),
 		},
 	}
+
+	envelope.Reliability = result.Reliability
 
 	for _, f := range result.Findings {
 		if f == nil || f.Status == CheckStatusOK {
