@@ -66,7 +66,10 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		writef("  Unused (no consumers):      %d (%.1f%%)\n",
 			result.Summary.UnusedTopics,
 			result.Summary.UnusedPercentage)
-		writef("  Internal (excluded):        %d\n\n", result.Summary.InternalTopics)
+		writef("  Internal (excluded):        %d\n", result.Summary.InternalTopics)
+		// Round 2: the hold-out used to be invisible — topics and their
+		// partitions vanished from every total with nothing naming them.
+		writef("  Service-managed (held out): %d\n\n", result.Summary.ManagedTopicsHeldOut)
 
 		// Partition statistics
 		writef("Partitions:\n")
@@ -129,6 +132,24 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 			writef("  Risk: %s\n", unused.Risk)
 			writef("  Recommendation: %s\n", unused.Recommendation)
 			writef("\n")
+		}
+	}
+
+	// Service-Managed Topics Section
+	//
+	// Round 2: these were moved out of the unused list because a backing topic
+	// having no consumer group is its steady state, not a finding. They must
+	// still be VISIBLE — silently omitting them would hide, for example, a
+	// Schema Registry topic the operator may want to know about.
+	if len(result.ManagedTopics) > 0 {
+		writef("Service-Managed Topics (not cleanup candidates)\n")
+		writef("================================================\n\n")
+
+		for _, managed := range result.ManagedTopics {
+			writef("[MANAGED] %s\n", managed.Name)
+			writef("  Owner: %s\n", managed.ManagedBy)
+			writef("  Partitions: %d, Replication: %d\n", managed.Partitions, managed.ReplicationFactor)
+			writef("  %s\n\n", managed.Recommendation)
 		}
 	}
 

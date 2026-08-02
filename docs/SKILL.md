@@ -89,9 +89,13 @@ Prints version, commit, and build date.
 }
 ```
 
-`unused_topics` is ordered by risk descending. Entries carry `managed_by` when the
-topic is a service backing store, and `abandoned_consumer_groups` when the only
-groups referencing it hold no live members.
+`unused_topics` is ordered by risk descending. Service backing topics (Schema
+Registry, Connect, MirrorMaker 2, Streams) never appear here — they are listed
+separately under `managed_topics` and counted by
+`summary.managed_topics_held_out`, because a backing topic having no consumer
+group is its steady state, not a finding. Entries in `unused_topics` carry
+`abandoned_consumer_groups` when the only groups referencing them hold no live
+members.
 
 **Exit codes:**
 - 0: scan complete, no findings
