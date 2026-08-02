@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// WO-33: config parse fixture helper
 func parseConfig(t *testing.T, body string) (*Config, error) {
 	t.Helper()
 	dir := t.TempDir()
@@ -22,6 +23,7 @@ func parseConfig(t *testing.T, body string) (*Config, error) {
 // key. The old terminator ("line has no leading whitespace") treated the first
 // such item as the next root key, so parsing failed with "unexpected list item"
 // and every command was blocked until the user re-indented.
+// WO-33: YAML block list indentation
 func TestBlockListIndentationStyles(t *testing.T) {
 	cases := []struct {
 		name string
@@ -64,6 +66,7 @@ func TestBlockListIndentationStyles(t *testing.T) {
 }
 
 // WO-33: a zero-indent list must still terminate at the next root key.
+// WO-33: block list termination
 func TestZeroIndentBlockListTerminatesAtNextKey(t *testing.T) {
 	cfg, err := parseConfig(t, "exclude_topics:\n- foo\n- bar\nformat: json\nbootstrap_servers: kafka:9092\n")
 	if err != nil {
@@ -90,6 +93,7 @@ func TestStrayListItemStillRejected(t *testing.T) {
 
 // WO-34: TLS material is configurable so a secured cluster can be expressed
 // without repeating flags on every invocation.
+// WO-34: TLS config keys parse
 func TestTLSConfigKeys(t *testing.T) {
 	cfg, err := parseConfig(t, "tls: true\ntls_cert: /certs/client.pem\ntls_key: /certs/client.key\ntls_ca: /certs/ca.pem\n")
 	if err != nil {
@@ -112,6 +116,7 @@ func TestTLSConfigKeys(t *testing.T) {
 
 // WO-34: credentials must never be read from a plaintext file on disk. Silently
 // ignoring them would leave the user believing the config worked.
+// WO-34: credentials rejected in config
 func TestCredentialKeysInConfigAreRejected(t *testing.T) {
 	for _, key := range []string{"username", "password"} {
 		t.Run(key, func(t *testing.T) {
@@ -127,6 +132,7 @@ func TestCredentialKeysInConfigAreRejected(t *testing.T) {
 }
 
 // WO-34: the environment is the credential source.
+// WO-34: credentials from environment
 func TestCredentialsFromEnv(t *testing.T) {
 	t.Setenv(UsernameEnvVar, "kafka-user")
 	t.Setenv(PasswordEnvVar, "not-a-real-secret")

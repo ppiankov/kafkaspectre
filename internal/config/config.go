@@ -58,6 +58,7 @@ type Config struct {
 // CredentialsFromEnv returns SASL credentials supplied via the environment.
 //
 // WO-34: the returned values are secrets. Callers must never log them.
+// WO-34: environment-sourced credentials
 func CredentialsFromEnv() (username, password string) {
 	return os.Getenv(UsernameEnvVar), os.Getenv(PasswordEnvVar)
 }
@@ -152,6 +153,7 @@ func loadOptionalPath(path string) (*Config, bool, error) {
 	return cfg, true, nil
 }
 
+// WO-33: YAML config parser with block lists
 func parse(data []byte) (*Config, error) {
 	cfg := &Config{}
 	text := strings.TrimPrefix(string(data), "\uFEFF")

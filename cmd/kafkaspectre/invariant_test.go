@@ -15,6 +15,7 @@ import (
 // WO-39: the summary list and the per-topic recommendation were decided
 // independently and disagreed, so a single JSON document told automation to
 // delete __consumer_offsets while telling a human not to.
+// WO-39: cleanup list invariant
 func assertCleanupListConsistent(t *testing.T, result *reporter.AuditResult) {
 	t.Helper()
 
@@ -47,6 +48,7 @@ func assertCleanupListConsistent(t *testing.T, result *reporter.AuditResult) {
 
 // WO-39: a plain `audit --output json` listed __consumer_offsets for deletion.
 // It is now held out of the analysis entirely.
+// WO-39: offsets never in cleanup list
 func TestConsumerOffsetsNeverRecommendedForCleanup(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -74,6 +76,7 @@ func TestConsumerOffsetsNeverRecommendedForCleanup(t *testing.T) {
 }
 
 // WO-39: a degraded scan must not publish a named delete list.
+// WO-39: degraded scan empty cleanup
 func TestDegradedScanPublishesNoCleanupList(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -95,6 +98,7 @@ func TestDegradedScanPublishesNoCleanupList(t *testing.T) {
 
 // WO-39: --include-managed surfaces managed topics but must not promote them
 // into the cleanup list.
+// WO-39: managed excluded from cleanup
 func TestIncludeManagedKeepsManagedTopicsOutOfCleanupList(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -120,6 +124,7 @@ func TestIncludeManagedKeepsManagedTopicsOutOfCleanupList(t *testing.T) {
 
 // WO-38: the check path had no reliability signal, so a failed consumer-group
 // read produced confident UNUSED findings for every cluster topic.
+// WO-38: check path reliability
 func TestCheckSurfacesDegradedScan(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -151,6 +156,7 @@ func TestCheckSurfacesDegradedScan(t *testing.T) {
 }
 
 // WO-38: a clean check scan keeps its precise reasons.
+// WO-38: clean check reasons
 func TestCheckCleanScanKeepsPreciseReasons(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers:        []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -173,6 +179,7 @@ func TestCheckCleanScanKeepsPreciseReasons(t *testing.T) {
 }
 
 // WO-42: the managed hold-out applies to cluster topics AND repo topics.
+// WO-42: managed hold-out both sides
 func TestManagedTopicReferencedInRepoIsNotMissingInCluster(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -205,6 +212,7 @@ func TestManagedTopicReferencedInRepoIsNotMissingInCluster(t *testing.T) {
 }
 
 // WO-42: a genuinely absent topic must still be reported missing.
+// WO-42: absent topic still missing
 func TestGenuinelyMissingTopicStillReported(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers:        []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -225,6 +233,7 @@ func TestGenuinelyMissingTopicStillReported(t *testing.T) {
 
 // Round 2: the round-1 hold-out used a different predicate on each side of the
 // union, so a repo reference to __consumer_offsets produced UNREFERENCED_IN_REPO.
+// WO-42: internal topic not unreferenced
 func TestInternalTopicReferencedInRepoIsNotUnreferenced(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -252,6 +261,7 @@ func TestInternalTopicReferencedInRepoIsNotUnreferenced(t *testing.T) {
 
 // Round 2: a managed topic referenced but ABSENT is a genuine missing-topic
 // finding (typo, wrong cluster, Connect never started).
+// WO-42: absent managed still missing
 func TestManagedTopicReferencedButAbsentIsStillMissing(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers:        []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -272,6 +282,7 @@ func TestManagedTopicReferencedButAbsentIsStillMissing(t *testing.T) {
 
 // Round 2: a managed topic can never appear in unused_topics in any mode. This
 // is the structural guarantee that makes per-site jq filters unnecessary.
+// WO-26: managed never in unused
 func TestUnusedTopicsNeverContainsAManagedTopic(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -309,6 +320,7 @@ func TestUnusedTopicsNeverContainsAManagedTopic(t *testing.T) {
 
 // Round 2: the hold-out must be discoverable. Topics and their partitions used
 // to vanish from every total with nothing naming them.
+// WO-26: hold-out counter
 func TestManagedHoldOutIsCounted(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -333,6 +345,7 @@ func TestManagedHoldOutIsCounted(t *testing.T) {
 // Round 3 (self-review): analyzed == active + unused must hold across all flag
 // combinations. Managed topics are neither; they must not inflate the analyzed
 // count.
+// WO-26: analyzed equals active plus unused
 func TestAuditCountingConsistency(t *testing.T) {
 	mk := func() *kafka.ClusterMetadata {
 		return &kafka.ClusterMetadata{

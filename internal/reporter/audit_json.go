@@ -61,6 +61,7 @@ type BrokerInfo struct {
 }
 
 // GenerateAudit produces a JSON audit report with improved structure
+// WO-27: JSON output with reliability field
 func (r *AuditJSONReporter) GenerateAudit(ctx context.Context, result *AuditResult) error {
 	// Build simplified output structure
 	output := &AuditJSONOutput{

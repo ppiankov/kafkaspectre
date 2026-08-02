@@ -38,6 +38,7 @@ func flagNames(set *pflag.FlagSet) []string {
 // WO-36: the eleven-plus connection flags were declared twice, once per command,
 // so a flag added to one silently went missing from the other. With a single
 // registration the two sets must agree exactly.
+// WO-36: shared flag set
 func TestAuditAndCheckShareConnectionFlags(t *testing.T) {
 	audit := flagNames(newAuditCmd().Flags())
 	check := flagNames(newCheckCmd().Flags())
@@ -55,6 +56,7 @@ func TestAuditAndCheckShareConnectionFlags(t *testing.T) {
 }
 
 // WO-36: defaults and help strings must also come from the single registration.
+// WO-36: flag definitions match
 func TestConnectionFlagDefinitionsMatchAcrossCommands(t *testing.T) {
 	audit := newAuditCmd().Flags()
 	check := newCheckCmd().Flags()

@@ -366,6 +366,7 @@ func TestNormalizeExcludePatterns(t *testing.T) {
 	}
 }
 
+// WO-34: config defaults applied
 func TestResolveAuditOptionsFromConfig(t *testing.T) {
 	workingDir := t.TempDir()
 	withWorkingDir(t, workingDir)
@@ -410,6 +411,7 @@ timeout: 45s
 	}
 }
 
+// WO-34: flags override config
 func TestResolveAuditOptionsFlagsOverrideConfig(t *testing.T) {
 	workingDir := t.TempDir()
 	withWorkingDir(t, workingDir)
@@ -529,6 +531,7 @@ func TestRecommendationForRisk(t *testing.T) {
 	}
 }
 
+// WO-39: cleanup ordering and filtering
 func TestRecommendedCleanup(t *testing.T) {
 	unused := []*reporter.UnusedTopic{
 		{Name: "z-low", CleanupPriority: 1, Risk: "low"},

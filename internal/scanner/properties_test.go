@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// WO-35: scan directory fixture
 func scanDir(t *testing.T, files map[string]string) *Result {
 	t.Helper()
 	dir := t.TempDir()
@@ -34,6 +35,7 @@ func hasTopic(result *Result, topic string) bool {
 
 // WO-35: .properties is Kafka's native config format. Topics referenced only
 // there were invisible to `check` and fed the unused-topic findings.
+// WO-35: properties file scan
 func TestScanPropertiesFile(t *testing.T) {
 	result := scanDir(t, map[string]string{
 		"kafka.properties": "topic=orders\n" +
@@ -54,6 +56,7 @@ func TestScanPropertiesFile(t *testing.T) {
 // key with a topic-shaped value becomes a phantom topic reference, and phantom
 // references suppress genuine UNREFERENCED_IN_REPO findings in `check`.
 // These values are all valid topic names, so only the key filter rejects them.
+// WO-35: non-topic keys filtered
 func TestPropertiesNonTopicKeysAreIgnored(t *testing.T) {
 	result := scanDir(t, map[string]string{
 		"app.properties": "spring.application.name=my-service\n" +
@@ -73,6 +76,7 @@ func TestPropertiesNonTopicKeysAreIgnored(t *testing.T) {
 }
 
 // WO-35: .properties comments use both # and !.
+// WO-35: comments ignored
 func TestPropertiesCommentsIgnored(t *testing.T) {
 	result := scanDir(t, map[string]string{
 		"c.properties": "# topic=hash-ghost\n! topic=bang-ghost\ntopic=real\n",
@@ -89,6 +93,7 @@ func TestPropertiesCommentsIgnored(t *testing.T) {
 }
 
 // WO-35: Spring Boot puts topics under namespaced keys.
+// WO-35: Spring properties scan
 func TestScanSpringApplicationProperties(t *testing.T) {
 	result := scanDir(t, map[string]string{
 		"src/main/resources/application.properties": "spring.kafka.template.default-topic=user-events\n" +
@@ -120,6 +125,7 @@ func TestPropertiesReferencesAreLabelled(t *testing.T) {
 }
 
 // WO-35: JVM and Node source extensions are part of the Kafka ecosystem.
+// WO-35: added source extensions
 func TestScanAddedSourceExtensions(t *testing.T) {
 	cases := map[string]string{
 		"Consumer.kt":    "val topic = \"kotlin-events\"\n",
@@ -147,6 +153,7 @@ func TestScanAddedSourceExtensions(t *testing.T) {
 
 // WO-35: a zero-topic result must be distinguishable from an all-unsupported
 // repository.
+// WO-35: skipped files counted
 func TestFilesSkippedCounted(t *testing.T) {
 	result := scanDir(t, map[string]string{
 		"README.md":  "# no topics here\n",
@@ -164,6 +171,7 @@ func TestFilesSkippedCounted(t *testing.T) {
 }
 
 // WO-35: supported files must not be counted as skipped.
+// WO-35: supported not skipped
 func TestSupportedFilesNotCountedAsSkipped(t *testing.T) {
 	result := scanDir(t, map[string]string{"kafka.properties": "topic=orders\n"})
 

@@ -137,6 +137,7 @@ type AuditReporter interface {
 // consumers reading the first N findings got an alphabetical sample rather than
 // the high-risk ones. Callers apply this at the source; reporters may reapply
 // it because it is idempotent.
+// WO-31: single severity ordering definition
 func SortUnusedTopicsBySeverity(topics []*UnusedTopic) {
 	sort.SliceStable(topics, func(i, j int) bool {
 		if topics[i].Risk != topics[j].Risk {
@@ -210,6 +211,7 @@ func FormatRetentionMs(retentionMs string) string {
 }
 
 // BuildUnusedTopic creates an UnusedTopic from TopicInfo with enhanced fields
+// WO-26: build unused topic with managed owner
 func BuildUnusedTopic(topic *kafka.TopicInfo, reason, recommendation, risk string, priority int) *UnusedTopic {
 	retentionMs := topic.Config["retention.ms"]
 

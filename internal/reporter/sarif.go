@@ -39,6 +39,7 @@ func NewSARIFReporter(w io.Writer, pretty bool) *SARIFReporter {
 }
 
 // GenerateCheck emits check findings as SARIF.
+// WO-27: SARIF check output with reliability
 func (r *SARIFReporter) GenerateCheck(ctx context.Context, result *CheckResult) error {
 	run := buildCheckSARIFRun(result)
 	run.Invocations = invocationFor(result.Reliability)
@@ -50,6 +51,7 @@ func (r *SARIFReporter) GenerateCheck(ctx context.Context, result *CheckResult) 
 }
 
 // GenerateAudit emits audit findings as SARIF.
+// WO-27: SARIF output with reliability invocations
 func (r *SARIFReporter) GenerateAudit(ctx context.Context, result *AuditResult) error {
 	run := buildAuditSARIFRun(result)
 	run.Invocations = invocationFor(result.Reliability)
@@ -461,6 +463,7 @@ type sarifMessageText struct {
 }
 
 // invocationFor builds the SARIF invocation block for a scan.
+// WO-27: SARIF invocation from reliability
 func invocationFor(reliability ScanReliability) []sarifInvocation {
 	inv := sarifInvocation{ExecutionSuccessful: reliability.ConsumerGroupsComplete}
 	for _, readErr := range reliability.ReadErrors {

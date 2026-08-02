@@ -7,6 +7,7 @@ import (
 	"github.com/ppiankov/kafkaspectre/internal/kafka"
 )
 
+// WO-31: risk level ordering
 func TestRiskLevel(t *testing.T) {
 	cases := []struct {
 		name string

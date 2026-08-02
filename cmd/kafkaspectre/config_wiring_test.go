@@ -9,6 +9,7 @@ import (
 	"github.com/ppiankov/kafkaspectre/internal/kafka"
 )
 
+// WO-34: config fixture helper
 func withConfig(t *testing.T, body string) {
 	t.Helper()
 	workingDir := t.TempDir()

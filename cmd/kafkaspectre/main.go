@@ -113,7 +113,7 @@ type auditOptions struct {
 	output          string
 	excludeInternal bool
 	excludeTopics   []string
-	includeManaged  bool
+	includeManaged  bool // WO-26: surface service-managed backing topics
 	timeout         time.Duration
 }
 
@@ -134,6 +134,7 @@ type checkOptions struct {
 	timeout         time.Duration
 }
 
+// WO-25: root command with --format alias
 func newRootCmd() *cobra.Command {
 	var verbose bool
 	var format string
@@ -208,6 +209,7 @@ const defaultConfigContents = `# kafkaspectre configuration
 `
 
 // WO-25: init creates a default config file for ANCC compliance.
+// WO-25: init command for ANCC compliance
 func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
@@ -249,6 +251,7 @@ func newVersionCmd() *cobra.Command {
 	}
 }
 
+// WO-36: shared connection flag registration
 func newAuditCmd() *cobra.Command {
 	var opts auditOptions
 
@@ -269,6 +272,7 @@ func newAuditCmd() *cobra.Command {
 	return cmd
 }
 
+// WO-36: shared connection flag registration
 func newCheckCmd() *cobra.Command {
 	var opts checkOptions
 
@@ -295,6 +299,7 @@ func newCheckCmd() *cobra.Command {
 	return cmd
 }
 
+// WO-36: shared connection option resolution
 func resolveAuditOptions(cmd *cobra.Command, opts auditOptions) (auditOptions, error) {
 	if err := resolveConnectionOptions(cmd, opts.connection()); err != nil {
 		return opts, err
@@ -309,6 +314,7 @@ func resolveAuditOptions(cmd *cobra.Command, opts auditOptions) (auditOptions, e
 	return opts, nil
 }
 
+// WO-36: shared connection option resolution
 func resolveCheckOptions(cmd *cobra.Command, opts checkOptions) (checkOptions, error) {
 	if err := resolveConnectionOptions(cmd, opts.connection()); err != nil {
 		return opts, err
@@ -328,6 +334,7 @@ func resolveCheckOptions(cmd *cobra.Command, opts checkOptions) (checkOptions, e
 //
 // WO-36: resolveAuditOptions and resolveCheckOptions performed these same four
 // steps against two identical-but-separate option structs.
+// WO-36: layered config/env/default resolution
 func resolveConnectionOptions(cmd *cobra.Command, c connectionOptions) error {
 	cfg, cfgPath, err := config.Load()
 	if err != nil {
@@ -357,6 +364,7 @@ func flagChanged(cmd *cobra.Command, name string) bool {
 	return flag.Changed
 }
 
+// WO-27: audit with reliability-aware reporting
 func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	start := time.Now()
 
@@ -465,6 +473,7 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	return nil
 }
 
+// WO-38: check with reliability-aware reporting
 func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	start := time.Now()
 
@@ -612,6 +621,7 @@ func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, exc
 // WO-27: when the consumer-group picture is incomplete, "no consumers found"
 // is not evidence that a topic is unused, so no delete advice is emitted.
 // WO-26: topics owned by a managed service are never deletion candidates.
+// WO-26: managed-topic bucketing and counting
 func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.AuditResult {
 	consumersByTopic, abandonedByTopic := buildConsumersByTopicWithState(metadata)
 	consumerDataComplete := metadata.ConsumerGroupsComplete()
@@ -753,6 +763,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 	}
 }
 
+// WO-27: extract consumer-group read errors
 func readErrors(metadata *kafka.ClusterMetadata) []string {
 	if metadata == nil {
 		return nil
@@ -765,6 +776,7 @@ func readErrors(metadata *kafka.ClusterMetadata) []string {
 //
 // WO-27/WO-29: "No consumer groups found" was previously emitted for all three
 // cases, which are operationally very different.
+// WO-27: reliability-aware unused reason
 func unusedReason(topic *kafka.TopicInfo, abandoned []string, consumerDataComplete bool) string {
 	if !consumerDataComplete {
 		return "Consumer group data could not be read; unused status is UNVERIFIED"
@@ -791,6 +803,7 @@ const doNotActAdvice = "Do not act on this finding — re-run once the cluster i
 //
 // WO-39: the invariant is that nothing may name a topic for cleanup unless this
 // returns true for it, so the report cannot contradict itself.
+// WO-39: deletability invariant
 func deletable(topic *reporter.UnusedTopic) bool {
 	if topic == nil || topic.ManagedBy != "" {
 		return false
@@ -805,6 +818,7 @@ func deletable(topic *reporter.UnusedTopic) bool {
 //
 // WO-26: a managed topic is never a deletion candidate regardless of risk score.
 // WO-27: an unverified reading must not carry deletion advice at all.
+// WO-26: managed-aware delete recommendation
 func unusedRecommendation(topic *kafka.TopicInfo, risk string, consumerDataComplete bool) string {
 	if owner := topic.ManagedOwner(); owner != kafka.OwnerNone {
 		return fmt.Sprintf("%s — backing store for %s", doNotDeletePrefix, owner)
@@ -815,6 +829,7 @@ func unusedRecommendation(topic *kafka.TopicInfo, risk string, consumerDataCompl
 	return recommendationForRisk(risk)
 }
 
+// WO-29: group-state-aware consumer mapping
 func buildConsumersByTopic(metadata *kafka.ClusterMetadata) map[string][]string {
 	active, _ := buildConsumersByTopicWithState(metadata)
 	return active
@@ -827,6 +842,7 @@ func buildConsumersByTopic(metadata *kafka.ClusterMetadata) map[string][]string 
 // Empty or Dead state marked its topics ACTIVE. An abandoned group holding
 // stale offsets is evidence a topic is NO LONGER consumed; treating it as an
 // active consumer inverted the signal and hid the topic from the unused list.
+// WO-29: split active from abandoned groups
 func buildConsumersByTopicWithState(metadata *kafka.ClusterMetadata) (active map[string][]string, abandoned map[string][]string) {
 	activeSet := make(map[string]map[string]struct{})
 	abandonedSet := make(map[string]map[string]struct{})
@@ -847,6 +863,7 @@ func buildConsumersByTopicWithState(metadata *kafka.ClusterMetadata) (active map
 	return flattenGroupSets(activeSet), flattenGroupSets(abandonedSet)
 }
 
+// WO-29: deduplicate consumer group sets
 func flattenGroupSets(sets map[string]map[string]struct{}) map[string][]string {
 	out := make(map[string][]string, len(sets))
 	for topic, groups := range sets {
@@ -861,10 +878,12 @@ func flattenGroupSets(sets map[string]map[string]struct{}) map[string][]string {
 	return out
 }
 
+// WO-26: managed hold-out for check
 func buildCheckResult(scanResult *scanner.Result, metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string) *reporter.CheckResult {
 	return buildCheckResultWithOptions(scanResult, metadata, excludeInternal, excludeTopics, false)
 }
 
+// WO-38: check reliability and managed symmetry
 func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.CheckResult {
 	consumersByTopic := buildConsumersByTopic(metadata)
 	consumerDataComplete := metadata.ConsumerGroupsComplete()
@@ -1075,6 +1094,7 @@ func metadataStats(metadata *kafka.ClusterMetadata) (topicCount int, partitionCo
 // WO-38: the UNUSED reasons asserted "has no active consumer groups" as fact.
 // When the consumer-group read failed the tool saw zero groups for every topic,
 // so that sentence was a confident claim about data it never read.
+// WO-38: reliability-aware check classification
 func classifyCheckStatus(referencedInRepo, inCluster, hasConsumers, consumerDataComplete bool) (reporter.CheckStatus, string) {
 	switch {
 	case referencedInRepo && !inCluster:
@@ -1144,6 +1164,7 @@ func recommendationForRisk(risk string) string {
 // degraded scan published a named delete list built from a cluster it could not
 // read. Deletability is decided once, by deletable(), and both the per-topic
 // recommendation and this list derive from it.
+// WO-39: managed-aware cleanup list
 func recommendedCleanup(unused []*reporter.UnusedTopic, limit int, consumerDataComplete bool) []string {
 	if len(unused) == 0 || limit <= 0 || !consumerDataComplete {
 		return nil

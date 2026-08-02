@@ -10,6 +10,7 @@ import (
 // WO-28: topic attribution came only from committed offsets, so a group with
 // live assignments but no commits yet contributed nothing and its topics were
 // reported unused. assignedTopics had no test at all.
+// WO-28: member assignment union
 func TestAssignedTopics(t *testing.T) {
 	t.Run("empty-group", func(t *testing.T) {
 		if got := assignedTopics(kadm.DescribedGroup{Group: "g"}); len(got) != 0 {

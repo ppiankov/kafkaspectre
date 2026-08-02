@@ -23,6 +23,7 @@ var commandInvocationPattern = regexp.MustCompile(`(?m)\bkafkaspectre\s+([a-z][a
 // docFlagPattern matches a long flag mentioned anywhere in the document.
 var docFlagPattern = regexp.MustCompile(`--([a-z][a-z0-9-]*)`)
 
+// WO-25: read SKILL.md helper
 func readSkillDoc(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Clean(skillDocPath))
@@ -46,6 +47,7 @@ func knownCommands(t *testing.T) map[string]*cobra.Command {
 // AGENTS can drive this CLI. It previously documented a `scan` command and an
 // `init` command, neither of which exists, so every documented invocation
 // failed. This test fails the build if the doc drifts from the binary again.
+// WO-25: guard SKILL.md commands
 func TestSkillDocCommandsExist(t *testing.T) {
 	doc := readSkillDoc(t)
 	commands := knownCommands(t)
@@ -74,6 +76,7 @@ func TestSkillDocCommandsExist(t *testing.T) {
 
 // WO-25: `--format json` and `--baseline path` were documented but never
 // implemented, so an agent following the doc got "unknown flag".
+// WO-25: guard SKILL.md flags
 func TestSkillDocFlagsExist(t *testing.T) {
 	doc := readSkillDoc(t)
 	root := newRootCmd()
@@ -122,6 +125,7 @@ func TestSkillDocFlagsExist(t *testing.T) {
 // WO-25: the doc claimed exit codes 0/1/2 while the binary uses 0/1/2/3/5/6.
 // "findings detected" in particular was documented as 1 but is really 6, so a
 // CI gate keying on the documented value would misread every run.
+// WO-25: guard exit codes
 func TestSkillDocExitCodesMatchConstants(t *testing.T) {
 	doc := readSkillDoc(t)
 
@@ -149,6 +153,7 @@ func TestSkillDocExitCodesMatchConstants(t *testing.T) {
 }
 
 // WO-25: the doc described the tool as an ACL auditor. No ACL logic exists.
+// WO-25: guard description
 func TestSkillDocDescribesTheRightTool(t *testing.T) {
 	doc := strings.ToLower(readSkillDoc(t))
 

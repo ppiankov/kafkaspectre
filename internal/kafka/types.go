@@ -26,6 +26,7 @@ type ClusterMetadata struct {
 // ConsumerGroupsComplete reports whether every consumer-group read succeeded.
 //
 // WO-27: unused-topic verdicts are only sound when this is true.
+// WO-27: read completeness gate
 func (m *ClusterMetadata) ConsumerGroupsComplete() bool {
 	return m != nil && len(m.ConsumerGroupReadErrors) == 0
 }
@@ -45,6 +46,7 @@ type TopicInfo struct {
 // WO-26: derived from the topic name at the point of use rather than stored on
 // the struct, so a caller that constructs a TopicInfo directly cannot end up
 // with an unclassified managed topic and a delete recommendation.
+// WO-26: name-derived managed classification
 func (t *TopicInfo) ManagedOwner() ManagedTopicOwner {
 	if t == nil {
 		return OwnerNone
@@ -80,6 +82,7 @@ var abandonedGroupStates = map[string]struct{}{
 // WO-29: State was captured but never read, so an Empty or Dead group — the
 // very signal that a topic is no longer consumed — marked its topics ACTIVE and
 // hid them from the unused list.
+// WO-29: abandoned consumer group detection
 func (c *ConsumerGroupInfo) IsAbandoned() bool {
 	if c == nil {
 		return true

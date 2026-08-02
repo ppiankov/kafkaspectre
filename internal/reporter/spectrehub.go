@@ -70,6 +70,7 @@ func NewSpectreHubReporter(w io.Writer, bootstrapServer string) *SpectreHubRepor
 }
 
 // GenerateAudit emits audit findings as spectre/v1 JSON.
+// WO-27: SpectreHub audit with reliability
 func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResult) error {
 	envelope := SpectreHubEnvelope{
 		Schema:    "spectre/v1",
@@ -119,6 +120,7 @@ func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResul
 }
 
 // GenerateCheck emits check findings as spectre/v1 JSON.
+// WO-27: SpectreHub check with reliability
 func (r *SpectreHubReporter) GenerateCheck(_ context.Context, result *CheckResult) error {
 	envelope := SpectreHubEnvelope{
 		Schema:    "spectre/v1",

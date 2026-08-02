@@ -68,6 +68,7 @@ func TestLoadFromPath_InlineList(t *testing.T) {
 	}
 }
 
+// WO-32: config auto-discovery
 func TestLoad_AutoDiscovery(t *testing.T) {
 	cwdDir := filepath.Join(t.TempDir(), "cwd")
 	if err := os.MkdirAll(cwdDir, 0o755); err != nil {
@@ -118,6 +119,7 @@ func TestLoad_AutoDiscovery(t *testing.T) {
 	}
 }
 
+// WO-32: home fallback discovery
 func TestLoad_AutoDiscoveryHomeFallback(t *testing.T) {
 	cwdDir := t.TempDir()
 	homeDir := t.TempDir()
@@ -153,6 +155,7 @@ func TestLoad_AutoDiscoveryHomeFallback(t *testing.T) {
 	}
 }
 
+// WO-32: no config file found
 func TestLoad_NoFile(t *testing.T) {
 	cwdDir := t.TempDir()
 	homeDir := t.TempDir()

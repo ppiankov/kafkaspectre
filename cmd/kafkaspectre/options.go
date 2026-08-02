@@ -40,6 +40,7 @@ type connectionOptions struct {
 	timeout         *time.Duration
 }
 
+// WO-36: pointer view over shared connection options
 func (o *auditOptions) connection() connectionOptions {
 	return connectionOptions{
 		bootstrapServer: &o.bootstrapServer,

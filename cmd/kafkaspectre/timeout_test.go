@@ -13,6 +13,7 @@ import (
 // WO-37: `--timeout 0` was indistinguishable from "flag absent" because both
 // produced a zero duration, so the sentinel substitution rewrote it to 10s
 // before the "timeout must be greater than zero" guard could ever see it.
+// WO-37: timeout sentinel fix
 func TestTimeoutResolution(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -79,6 +80,7 @@ func TestTimeoutResolution(t *testing.T) {
 }
 
 // WO-37: an explicit zero must now reach the guard and be rejected.
+// WO-37: zero timeout rejected
 func TestRunAuditRejectsExplicitZeroTimeout(t *testing.T) {
 	err := runAudit(newAuditCmd(), auditOptions{
 		bootstrapServer: "localhost:9092",
@@ -96,6 +98,7 @@ func TestRunAuditRejectsExplicitZeroTimeout(t *testing.T) {
 	}
 }
 
+// WO-37: zero timeout rejected
 func TestRunCheckRejectsExplicitZeroTimeout(t *testing.T) {
 	err := runCheck(newCheckCmd(), checkOptions{
 		repo:            t.TempDir(),
@@ -113,6 +116,7 @@ func TestRunCheckRejectsExplicitZeroTimeout(t *testing.T) {
 
 // mustDuration reads the parsed --timeout value back off the command, mirroring
 // how cobra populates the options struct in production.
+// WO-37: read timeout flag helper
 func mustDuration(t *testing.T, cmd *cobra.Command) time.Duration {
 	t.Helper()
 	value, err := cmd.Flags().GetDuration("timeout")

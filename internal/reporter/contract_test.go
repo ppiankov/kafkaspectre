@@ -11,6 +11,7 @@ import (
 	"github.com/ppiankov/kafkaspectre/internal/kafka"
 )
 
+// WO-27: degraded result fixture
 func degradedResult() *AuditResult {
 	return &AuditResult{
 		Tool: "kafkaspectre", Version: "test", Timestamp: "2026-08-02T00:00:00Z",
@@ -31,6 +32,7 @@ func degradedResult() *AuditResult {
 	}
 }
 
+// WO-27: render JSON helper
 func renderAuditJSON(t *testing.T, result *AuditResult) map[string]any {
 	t.Helper()
 	var buf bytes.Buffer
@@ -50,6 +52,7 @@ func renderAuditJSON(t *testing.T, result *AuditResult) map[string]any {
 // These names are a published contract: docs/SKILL.md documents them and its
 // parsing examples pipe them through jq. Renaming `unused_topics` used to pass
 // the entire suite while breaking every documented consumer.
+// WO-25: JSON envelope key names
 func TestAuditJSONEnvelopeContract(t *testing.T) {
 	decoded := renderAuditJSON(t, degradedResult())
 
@@ -94,6 +97,7 @@ func TestAuditJSONEnvelopeContract(t *testing.T) {
 // WO-27: the reliability marker is what downstream consumers gate on —
 // docs/SKILL.md tells agents to run `jq -e '.reliability.consumer_groups_complete'`.
 // Dropping it from the envelope used to pass every test.
+// WO-27: reliability in JSON
 func TestAuditJSONCarriesReliability(t *testing.T) {
 	decoded := renderAuditJSON(t, degradedResult())
 
@@ -115,6 +119,7 @@ func TestAuditJSONCarriesReliability(t *testing.T) {
 }
 
 // WO-27: the operator-facing warning must actually render.
+// WO-27: degraded text banner
 func TestAuditTextWarnsOnDegradedScan(t *testing.T) {
 	var buf bytes.Buffer
 	if err := NewAuditTextReporter(&buf, false).GenerateAudit(context.Background(), degradedResult()); err != nil {
@@ -131,6 +136,7 @@ func TestAuditTextWarnsOnDegradedScan(t *testing.T) {
 }
 
 // WO-27: a clean scan must NOT cry wolf.
+// WO-27: clean scan silent
 func TestAuditTextSilentOnCleanScan(t *testing.T) {
 	result := degradedResult()
 	result.Reliability = ScanReliability{ConsumerGroupsComplete: true}
@@ -149,6 +155,7 @@ func TestAuditTextSilentOnCleanScan(t *testing.T) {
 // silently dropped by SARIF and SpectreHub — and SpectreHub is the documented
 // aggregation target, so an aggregator had to regex English prose to tell a
 // blind scan from an authoritative one.
+// WO-27: all reporters carry reliability
 func TestEveryAuditReporterCarriesReliability(t *testing.T) {
 	result := degradedResult()
 
@@ -196,6 +203,7 @@ func TestEveryAuditReporterCarriesReliability(t *testing.T) {
 }
 
 // A clean scan must report success in every format.
+// WO-27: clean scan all reporters
 func TestEveryAuditReporterReportsCleanScan(t *testing.T) {
 	result := degradedResult()
 	result.Reliability = ScanReliability{ConsumerGroupsComplete: true}

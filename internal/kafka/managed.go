@@ -97,6 +97,7 @@ func SetExtraManagedPatterns(patterns []string) {
 // connect-* topics were reported unused with a "safe to delete" recommendation.
 // Deleting _schemas destroys every registered schema in the cluster.
 // Matching is exact-then-prefix and deterministic — no heuristics.
+// WO-26: classify managed topic by name
 func ManagedTopicOwnerFor(topic string) ManagedTopicOwner {
 	if owner, ok := exactManagedTopics[topic]; ok {
 		return owner
@@ -132,6 +133,7 @@ func ManagedTopicOwnerFor(topic string) ManagedTopicOwner {
 }
 
 // IsManagedTopic reports whether a topic is backing store for a known service.
+// WO-26: report whether topic is managed
 func IsManagedTopic(topic string) bool {
 	return ManagedTopicOwnerFor(topic) != OwnerNone
 }

@@ -5,6 +5,7 @@ import "testing"
 // WO-26: the previous "__" prefix test missed every single-underscore and
 // hyphenated service topic. Each case below was reported as an unused topic
 // with a delete recommendation before this classification existed.
+// WO-26: managed topic classification
 func TestManagedTopicOwnerFor(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -42,6 +43,7 @@ func TestManagedTopicOwnerFor(t *testing.T) {
 }
 
 // WO-27: completeness gates whether unused verdicts are sound.
+// WO-27: completeness gate
 func TestConsumerGroupsComplete(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -68,6 +70,7 @@ func TestConsumerGroupsComplete(t *testing.T) {
 
 // WO-29: State was captured but never read, so Empty and Dead groups marked
 // their topics active and hid genuinely unused topics.
+// WO-29: abandoned group detection
 func TestConsumerGroupIsAbandoned(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -97,6 +100,7 @@ func TestConsumerGroupIsAbandoned(t *testing.T) {
 // WO-41: Streams changelog/repartition topics are read by restore consumers via
 // assign(), so they never have a consumer group and were scored "safe to
 // delete". Deleting a changelog destroys the state store.
+// WO-41: Streams/MM2 suffix patterns
 func TestManagedTopicSuffixesAndMirrorMaker(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -131,6 +135,7 @@ func TestManagedTopicSuffixesAndMirrorMaker(t *testing.T) {
 
 // WO-41: renamed Connect and Streams topics cannot be recognised by name, so the
 // operator must be able to declare them. Patterns may only ADD protection.
+// WO-41: operator-declared patterns
 func TestExtraManagedPatterns(t *testing.T) {
 	original := extraManagedPatterns
 	t.Cleanup(func() { extraManagedPatterns = original })

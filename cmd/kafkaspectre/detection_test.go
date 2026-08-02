@@ -9,6 +9,7 @@ import (
 	"github.com/ppiankov/kafkaspectre/internal/reporter"
 )
 
+// WO-26: topic fixture builder
 func topic(name string, partitions, replication int) *kafka.TopicInfo {
 	return &kafka.TopicInfo{
 		Name:              name,
@@ -19,6 +20,7 @@ func topic(name string, partitions, replication int) *kafka.TopicInfo {
 	}
 }
 
+// WO-26: lookup unused topic by name
 func unusedByName(result *reporter.AuditResult, name string) *reporter.UnusedTopic {
 	for _, unused := range result.UnusedTopics {
 		if unused.Name == name {

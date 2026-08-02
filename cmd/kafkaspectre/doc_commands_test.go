@@ -28,6 +28,7 @@ var publicDocs = []string{
 var commandLinePattern = regexp.MustCompile(`^\s*(?:\$\s*)?(?:[./][\w./-]*/)?kafkaspectre\s+([a-z][a-z0-9-]*)(.*)$`)
 
 // codeFencedCommandLines returns the kafkaspectre invocations in fenced blocks.
+// WO-25: extract fenced command lines
 func codeFencedCommandLines(doc string) [][]string {
 	var out [][]string
 	inFence := false
@@ -58,6 +59,7 @@ func codeFencedCommandLines(doc string) [][]string {
 	return out
 }
 
+// WO-25: guard public docs against drift
 func TestPublicDocsInvokeRealCommandsAndFlags(t *testing.T) {
 	root := newRootCmd()
 

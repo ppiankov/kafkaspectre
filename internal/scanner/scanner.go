@@ -225,6 +225,7 @@ func (s *RepoScanner) shouldSkipDir(name string) bool {
 // Kafka apps, Kafka Connect connector configs, and Kafka's own consumer and
 // producer configs all use it. Omitting it meant topics referenced only there
 // were classified UNREFERENCED_IN_REPO and fed the unused-topic findings.
+// WO-35: recognize .properties and added extensions
 func detectScanMode(path string) scanMode {
 	base := strings.ToLower(filepath.Base(path))
 	ext := strings.ToLower(filepath.Ext(path))
