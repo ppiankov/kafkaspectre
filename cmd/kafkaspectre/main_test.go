@@ -359,7 +359,7 @@ func TestNormalizeExcludePatterns(t *testing.T) {
 func TestResolveAuditOptionsFromConfig(t *testing.T) {
 	workingDir := t.TempDir()
 	withWorkingDir(t, workingDir)
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	configFile := filepath.Join(workingDir, config.DefaultFileName)
 	content := `bootstrap_servers: config:9092
@@ -403,7 +403,7 @@ timeout: 45s
 func TestResolveAuditOptionsFlagsOverrideConfig(t *testing.T) {
 	workingDir := t.TempDir()
 	withWorkingDir(t, workingDir)
-	t.Setenv("HOME", t.TempDir())
+	setHomeDir(t, t.TempDir())
 
 	configFile := filepath.Join(workingDir, config.DefaultFileName)
 	content := `bootstrap_servers: config:9092

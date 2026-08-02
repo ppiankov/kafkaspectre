@@ -53,7 +53,7 @@ func TestTimeoutResolution(t *testing.T) {
 		t.Run("audit/"+tc.name, func(t *testing.T) {
 			workingDir := t.TempDir()
 			withWorkingDir(t, workingDir)
-			t.Setenv("HOME", t.TempDir())
+			setHomeDir(t, t.TempDir())
 
 			if tc.configBody != "" {
 				path := filepath.Join(workingDir, config.DefaultFileName)

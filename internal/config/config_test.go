@@ -101,7 +101,7 @@ func TestLoad_AutoDiscovery(t *testing.T) {
 	if err := os.Chdir(cwdDir); err != nil {
 		t.Fatalf("Chdir(cwd): %v", err)
 	}
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 
 	cfg, path, err := Load()
 	if err != nil {
@@ -139,7 +139,7 @@ func TestLoad_AutoDiscoveryHomeFallback(t *testing.T) {
 	if err := os.Chdir(cwdDir); err != nil {
 		t.Fatalf("Chdir(cwd): %v", err)
 	}
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 
 	cfg, path, err := Load()
 	if err != nil {
@@ -170,7 +170,7 @@ func TestLoad_NoFile(t *testing.T) {
 	if err := os.Chdir(cwdDir); err != nil {
 		t.Fatalf("Chdir(cwd): %v", err)
 	}
-	t.Setenv("HOME", homeDir)
+	setHomeDir(t, homeDir)
 
 	cfg, path, err := Load()
 	if err != nil {

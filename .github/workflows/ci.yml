@@ -13,19 +13,24 @@ permissions:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    # GoReleaser publishes windows/amd64 and windows/arm64 archives, so the
+    # Windows target is compiled and tested here rather than shipped untested.
+    # Steps use go directly rather than make so they run on both shells.
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         go-version: ['1.25.x']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
-      - run: make deps
-      - run: make vet
-      - run: make test
-      - run: make build
+      - run: go mod download
+      - run: go vet ./...
+      - run: go test -race -cover ./...
+      - run: go build ./...
 
   lint:
     name: Lint

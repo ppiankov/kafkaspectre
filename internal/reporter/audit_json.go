@@ -31,6 +31,12 @@ type AuditJSONOutput struct {
 	UnusedTopics    []*UnusedTopic   `json:"unused_topics"`
 	ActiveTopics    []*ActiveTopic   `json:"active_topics,omitempty"`
 	ClusterMetadata *ClusterMetadata `json:"cluster_metadata"`
+
+	// Reliability lets a downstream consumer tell a degraded scan from a clean
+	// one. WO-27: without it, "could not read consumers" is indistinguishable
+	// from "no consumers", and unused findings look authoritative when they
+	// are not.
+	Reliability ScanReliability `json:"reliability"`
 }
 
 // ClusterMetadata simplified for JSON output
@@ -56,6 +62,7 @@ func (r *AuditJSONReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		Timestamp:    result.Timestamp,
 		Summary:      result.Summary,
 		UnusedTopics: result.UnusedTopics,
+		Reliability:  result.Reliability,
 		ClusterMetadata: &ClusterMetadata{
 			Brokers:       convertBrokers(result.Metadata.Brokers),
 			ConsumerCount: len(result.Metadata.ConsumerGroups),
