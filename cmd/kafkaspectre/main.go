@@ -567,13 +567,26 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		if shouldExcludeTopic(topic.Name, excludeTopics) {
 			continue
 		}
-		// WO-26: managed topics are backing store for a live service, so listing
-		// them as cleanup candidates is actively dangerous. Broker-internal
-		// ("__") topics are deliberately NOT covered here — they are already
-		// governed by --exclude-internal, and overriding that would silently
-		// change the meaning of an existing flag.
-		if topic.IsManaged() && !topic.Internal && !includeManaged {
-			managedHeldOut++
+		// WO-26: managed topics are backing store for a live service. They are
+		// reported separately and never count toward the analysis totals, so a
+		// Schema Registry topic cannot inflate the unused percentage, the
+		// savings pitch, or the exit code.
+		//
+		// --exclude-internal has already decided whether broker-internal topics
+		// survive to here, so this check applies to ALL managed topics including
+		// internal ones. One block, before the analyze counters, for both modes:
+		// --include-managed surfaces them in the managed_topics list; otherwise
+		// they are only counted so the hold-out is discoverable.
+		if topic.IsManaged() {
+			if includeManaged {
+				risk, priority := classifyRisk(topic)
+				recommendation := unusedRecommendation(topic, risk, consumerDataComplete)
+				managed := reporter.BuildUnusedTopic(topic, unusedReason(topic, abandonedByTopic[topic.Name], consumerDataComplete), recommendation, risk, priority)
+				managed.AbandonedConsumerGroups = abandonedByTopic[topic.Name]
+				managedTopics = append(managedTopics, managed)
+			} else {
+				managedHeldOut++
+			}
 			continue
 		}
 
@@ -586,15 +599,6 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 			recommendation := unusedRecommendation(topic, risk, consumerDataComplete)
 			unused := reporter.BuildUnusedTopic(topic, unusedReason(topic, abandonedByTopic[topic.Name], consumerDataComplete), recommendation, risk, priority)
 			unused.AbandonedConsumerGroups = abandonedByTopic[topic.Name]
-
-			// Round 2: a managed topic having no consumer group is its normal
-			// steady state, not a finding. Counting it inflated the unused
-			// statistics, the savings pitch and the health score, and made a
-			// healthy cluster exit 6 because of __consumer_offsets.
-			if topic.IsManaged() {
-				managedTopics = append(managedTopics, unused)
-				continue
-			}
 
 			unusedTopics = append(unusedTopics, unused)
 			unusedPartitions += topic.Partitions

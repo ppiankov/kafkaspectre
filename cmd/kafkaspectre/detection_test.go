@@ -115,14 +115,22 @@ func TestManagedClassificationDoesNotOverrideExcludeInternal(t *testing.T) {
 		}
 	}
 
+	// exclude-internal=false: __consumer_offsets is visible in the managed
+	// bucket, not silently held out by the managed check overriding the flag.
 	included := buildAuditResult(newMetadata(), false, nil)
-	if included.TotalTopics != 2 {
-		t.Fatalf("exclude-internal=false analyzed %d topics, want 2", included.TotalTopics)
+	if included.TotalTopics != 1 {
+		t.Fatalf("exclude-internal=false analyzed %d topics, want 1 (orders; offsets is managed)", included.TotalTopics)
+	}
+	if included.Summary.ManagedTopicsHeldOut != 1 {
+		t.Fatalf("exclude-internal=false held out %d managed topics, want 1", included.Summary.ManagedTopicsHeldOut)
 	}
 
 	excluded := buildAuditResult(newMetadata(), true, nil)
 	if excluded.TotalTopics != 1 {
 		t.Fatalf("exclude-internal=true analyzed %d topics, want 1", excluded.TotalTopics)
+	}
+	if excluded.Summary.ManagedTopicsHeldOut != 0 {
+		t.Fatalf("exclude-internal=true should exclude offsets before the managed check, held out = %d", excluded.Summary.ManagedTopicsHeldOut)
 	}
 }
 

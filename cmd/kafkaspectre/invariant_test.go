@@ -22,9 +22,6 @@ func assertCleanupListConsistent(t *testing.T, result *reporter.AuditResult) {
 	for _, unused := range result.UnusedTopics {
 		byName[unused.Name] = unused
 	}
-	for _, managed := range result.ManagedTopics {
-		byName[managed.Name] = managed
-	}
 
 	for _, name := range result.Summary.RecommendedCleanup {
 		unused, ok := byName[name]
@@ -48,9 +45,8 @@ func assertCleanupListConsistent(t *testing.T, result *reporter.AuditResult) {
 	}
 }
 
-// WO-39: a plain `audit --output json` against a cluster with the offsets topic
-// listed __consumer_offsets for deletion. Internal topics are deliberately still
-// analysed when --exclude-internal is off, so the cleanup list is the guard.
+// WO-39: a plain `audit --output json` listed __consumer_offsets for deletion.
+// It is now held out of the analysis entirely.
 func TestConsumerOffsetsNeverRecommendedForCleanup(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -64,15 +60,16 @@ func TestConsumerOffsetsNeverRecommendedForCleanup(t *testing.T) {
 	result := buildAuditResult(metadata, false, nil)
 	assertCleanupListConsistent(t, result)
 
+	if unusedByName(result, "__consumer_offsets") != nil {
+		t.Fatal("__consumer_offsets leaked into unused_topics")
+	}
+	if result.Summary.ManagedTopicsHeldOut < 1 {
+		t.Fatal("__consumer_offsets should be counted as held out")
+	}
 	for _, name := range result.Summary.RecommendedCleanup {
 		if name == "__consumer_offsets" {
 			t.Fatal("__consumer_offsets was named for cleanup")
 		}
-	}
-	if got := managedByName(result, "__consumer_offsets"); got == nil {
-		t.Fatal("__consumer_offsets should still be reported under managed topics")
-	} else if !strings.HasPrefix(got.Recommendation, doNotDeletePrefix) {
-		t.Fatalf("__consumer_offsets recommendation = %q", got.Recommendation)
 	}
 }
 
@@ -175,10 +172,7 @@ func TestCheckCleanScanKeepsPreciseReasons(t *testing.T) {
 	}
 }
 
-// WO-42: the managed hold-out is applied to cluster topics AND repo topics. It
-// used to filter only the cluster side, so a Connect worker's
-// offset.storage.topic reference made connect-offsets look MISSING_IN_CLUSTER
-// even though the cluster had it.
+// WO-42: the managed hold-out applies to cluster topics AND repo topics.
 func TestManagedTopicReferencedInRepoIsNotMissingInCluster(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -229,10 +223,8 @@ func TestGenuinelyMissingTopicStillReported(t *testing.T) {
 	}
 }
 
-// Round 2, FINDING 3: the round-1 hold-out used a different predicate on each
-// side of the union, so a repo reference to __consumer_offsets produced
-// UNREFERENCED_IN_REPO with the reason "was not found in repository" — a claim
-// contradicted by the reference that triggered it.
+// Round 2: the round-1 hold-out used a different predicate on each side of the
+// union, so a repo reference to __consumer_offsets produced UNREFERENCED_IN_REPO.
 func TestInternalTopicReferencedInRepoIsNotUnreferenced(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -258,10 +250,8 @@ func TestInternalTopicReferencedInRepoIsNotUnreferenced(t *testing.T) {
 	}
 }
 
-// Round 2, FINDING 4: holding managed topics out of BOTH sides also suppressed
-// the genuine case — a Connect worker pointing at a backing topic that was
-// never created (typo, wrong cluster, Connect never started). A managed topic
-// is only uninteresting once confirmed to exist.
+// Round 2: a managed topic referenced but ABSENT is a genuine missing-topic
+// finding (typo, wrong cluster, Connect never started).
 func TestManagedTopicReferencedButAbsentIsStillMissing(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers:        []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -276,15 +266,12 @@ func TestManagedTopicReferencedButAbsentIsStillMissing(t *testing.T) {
 	result := buildCheckResult(scanResult, metadata, false, nil)
 
 	if result.Summary.MissingInClusterCount != 1 {
-		t.Fatalf("missing_in_cluster_count = %d, want 1 — a referenced-but-absent backing topic is a real finding", result.Summary.MissingInClusterCount)
+		t.Fatalf("missing_in_cluster_count = %d, want 1", result.Summary.MissingInClusterCount)
 	}
 }
 
-// Round 2: the reviewer found the round-1 fix pattern repeating — every jq
-// pipeline in docs/cleanup-guide.md that selects on `risk` is a separate write
-// site, and gating them one at a time means the next one gets missed. The fix
-// is structural: a managed topic can never appear in `unused_topics` at all, in
-// either mode, so no per-site filter is load-bearing.
+// Round 2: a managed topic can never appear in unused_topics in any mode. This
+// is the structural guarantee that makes per-site jq filters unnecessary.
 func TestUnusedTopicsNeverContainsAManagedTopic(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -321,8 +308,7 @@ func TestUnusedTopicsNeverContainsAManagedTopic(t *testing.T) {
 }
 
 // Round 2: the hold-out must be discoverable. Topics and their partitions used
-// to vanish from every total with nothing naming them, silently changing the
-// health score.
+// to vanish from every total with nothing naming them.
 func TestManagedHoldOutIsCounted(t *testing.T) {
 	metadata := &kafka.ClusterMetadata{
 		Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
@@ -340,6 +326,47 @@ func TestManagedHoldOutIsCounted(t *testing.T) {
 		t.Fatalf("managed_topics_held_out = %d, want 2", result.Summary.ManagedTopicsHeldOut)
 	}
 	if result.UnusedCount != 1 {
-		t.Fatalf("unused count = %d, want 1 — managed topics are not findings", result.UnusedCount)
+		t.Fatalf("unused count = %d, want 1", result.UnusedCount)
+	}
+}
+
+// Round 3 (self-review): analyzed == active + unused must hold across all flag
+// combinations. Managed topics are neither; they must not inflate the analyzed
+// count.
+func TestAuditCountingConsistency(t *testing.T) {
+	mk := func() *kafka.ClusterMetadata {
+		return &kafka.ClusterMetadata{
+			Brokers: []kafka.BrokerInfo{{ID: 1, Host: "b1", Port: 9092}},
+			Topics: map[string]*kafka.TopicInfo{
+				"_schemas":           topic("_schemas", 1, 1),
+				"connect-configs":    topic("connect-configs", 1, 3),
+				"app-changelog":      topic("app-changelog", 3, 1),
+				"__consumer_offsets": topic("__consumer_offsets", 50, 3),
+				"orders-unused":      topic("orders-unused", 1, 1),
+				"payments-unused":    topic("payments-unused", 12, 3),
+				"active-topic":       topic("active-topic", 4, 2),
+			},
+			ConsumerGroups: map[string]*kafka.ConsumerGroupInfo{
+				"cg": {GroupID: "cg", State: "Stable", Topics: []string{"active-topic"}},
+			},
+		}
+	}
+
+	for _, excludeInternal := range []bool{false, true} {
+		for _, includeManaged := range []bool{false, true} {
+			result := buildAuditResultWithOptions(mk(), excludeInternal, nil, includeManaged)
+
+			if got, want := result.TotalTopics, result.ActiveCount+result.UnusedCount; got != want {
+				t.Errorf("excludeInternal=%v includeManaged=%v: analyzed=%d != active+unused=%d",
+					excludeInternal, includeManaged, got, want)
+			}
+			if result.Summary.TotalTopics != result.TotalTopics {
+				t.Errorf("summary.total_topics_analyzed %d != result.TotalTopics %d", result.Summary.TotalTopics, result.TotalTopics)
+			}
+			// Managed topics must not inflate the exit-code findings count.
+			if result.UnusedCount > 2 {
+				t.Errorf("UnusedCount=%d, want at most 2 (managed must not count)", result.UnusedCount)
+			}
+		}
 	}
 }
