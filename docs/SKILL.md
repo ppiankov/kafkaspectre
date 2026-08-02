@@ -22,7 +22,8 @@ Audits a Kafka cluster for topics with no active consumer groups.
 
 **Flags:**
 - `--bootstrap-server host:port` — Kafka bootstrap server(s), comma-separated (required)
-- `--output json` — output as JSON
+- `--format json` — output as JSON (ANCC standard)
+- `--output json` — alias for `--format json`
 - `--output sarif` — SARIF format for CI integration
 - `--output spectrehub` — SpectreHub aggregator format
 - `--output text` — human-readable report (default)
@@ -43,11 +44,19 @@ Scans a repository for topic references and compares them against the cluster.
 
 Per-topic status values: `OK`, `MISSING_IN_CLUSTER`, `UNREFERENCED_IN_REPO`, `UNUSED`.
 
+### kafkaspectre init
+
+Creates a default `.kafkaspectre.yaml` configuration file in the current directory. Exits 0 on success, 1 if the file already exists.
+
 ### kafkaspectre version
 
 Prints version, commit, and build date.
 
-**JSON output (`audit --output json`):**
+**JSON output:**
+
+```bash
+kafkaspectre audit --bootstrap-server kafka:9092 --format json
+```
 ```json
 {
   "tool": "kafkaspectre",
