@@ -191,20 +191,7 @@ func newAuditCmd() *cobra.Command {
 		},
 	}
 
-	flags := cmd.Flags()
-	flags.StringVar(&opts.bootstrapServer, "bootstrap-server", "", "Kafka bootstrap server(s) (host:port, comma-separated)")
-	flags.StringVar(&opts.authMechanism, "auth-mechanism", "", "SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)")
-	flags.StringVar(&opts.username, "username", "", "SASL username")
-	flags.StringVar(&opts.password, "password", "", "SASL password")
-	flags.BoolVar(&opts.tlsEnabled, "tls", false, "Enable TLS")
-	flags.StringVar(&opts.tlsCert, "tls-cert", "", "Path to TLS client certificate")
-	flags.StringVar(&opts.tlsKey, "tls-key", "", "Path to TLS client private key")
-	flags.StringVar(&opts.tlsCA, "tls-ca", "", "Path to TLS CA certificate")
-	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|spectrehub|text)")
-	flags.BoolVar(&opts.excludeInternal, "exclude-internal", false, "Exclude internal topics from analysis")
-	flags.StringSliceVar(&opts.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
-	flags.BoolVar(&opts.includeManaged, "include-managed", false, "Include service-managed topics (Schema Registry, Connect) in analysis")
-	flags.DurationVar(&opts.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
+	registerConnectionFlags(cmd.Flags(), opts.connection())
 
 	return cmd
 }
@@ -226,19 +213,7 @@ func newCheckCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&opts.repo, "repo", "", "Path to repository to scan for topic references")
-	flags.StringVar(&opts.bootstrapServer, "bootstrap-server", "", "Kafka bootstrap server(s) (host:port, comma-separated)")
-	flags.StringVar(&opts.authMechanism, "auth-mechanism", "", "SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)")
-	flags.StringVar(&opts.username, "username", "", "SASL username")
-	flags.StringVar(&opts.password, "password", "", "SASL password")
-	flags.BoolVar(&opts.tlsEnabled, "tls", false, "Enable TLS")
-	flags.StringVar(&opts.tlsCert, "tls-cert", "", "Path to TLS client certificate")
-	flags.StringVar(&opts.tlsKey, "tls-key", "", "Path to TLS client private key")
-	flags.StringVar(&opts.tlsCA, "tls-ca", "", "Path to TLS CA certificate")
-	flags.StringVar(&opts.output, "output", "text", "Output format (json|sarif|spectrehub|text)")
-	flags.BoolVar(&opts.excludeInternal, "exclude-internal", false, "Exclude internal topics from analysis")
-	flags.StringSliceVar(&opts.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
-	flags.BoolVar(&opts.includeManaged, "include-managed", false, "Include service-managed topics (Schema Registry, Connect) in analysis")
-	flags.DurationVar(&opts.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
+	registerConnectionFlags(flags, opts.connection())
 
 	if err := cmd.MarkFlagRequired("repo"); err != nil {
 		panic(err)
@@ -248,13 +223,8 @@ func newCheckCmd() *cobra.Command {
 }
 
 func resolveAuditOptions(cmd *cobra.Command, opts auditOptions) (auditOptions, error) {
-	cfg, cfgPath, err := config.Load()
-	if err != nil {
+	if err := resolveConnectionOptions(cmd, opts.connection()); err != nil {
 		return opts, err
-	}
-	if cfg != nil {
-		slog.Debug("loaded defaults from config", "path", cfgPath)
-		opts = applyAuditConfigDefaults(cmd, opts, cfg)
 	}
 
 	patterns, err := normalizeExcludePatterns(opts.excludeTopics)
@@ -262,35 +232,13 @@ func resolveAuditOptions(cmd *cobra.Command, opts auditOptions) (auditOptions, e
 		return opts, err
 	}
 	opts.excludeTopics = patterns
-
-	// WO-34: credentials come from the environment, never the config file, so a
-	// secured cluster works without repeating --username/--password each run.
-	if !flagChanged(cmd, "username") && opts.username == "" {
-		opts.username, _ = config.CredentialsFromEnv()
-	}
-	if !flagChanged(cmd, "password") && opts.password == "" {
-		_, opts.password = config.CredentialsFromEnv()
-	}
-
-	// WO-37: only substitute the default when the flag was genuinely absent.
-	// Keying on `timeout == 0` made an explicit `--timeout 0` indistinguishable
-	// from "not set", so it was silently rewritten to 10s and the
-	// "timeout must be greater than zero" guard was unreachable.
-	if opts.timeout == 0 && !flagChanged(cmd, "timeout") {
-		opts.timeout = defaultQueryTimeout
-	}
 
 	return opts, nil
 }
 
 func resolveCheckOptions(cmd *cobra.Command, opts checkOptions) (checkOptions, error) {
-	cfg, cfgPath, err := config.Load()
-	if err != nil {
+	if err := resolveConnectionOptions(cmd, opts.connection()); err != nil {
 		return opts, err
-	}
-	if cfg != nil {
-		slog.Debug("loaded defaults from config", "path", cfgPath)
-		opts = applyCheckConfigDefaults(cmd, opts, cfg)
 	}
 
 	patterns, err := normalizeExcludePatterns(opts.excludeTopics)
@@ -299,95 +247,28 @@ func resolveCheckOptions(cmd *cobra.Command, opts checkOptions) (checkOptions, e
 	}
 	opts.excludeTopics = patterns
 
-	// WO-34: see resolveAuditOptions — credentials are environment-sourced.
-	if !flagChanged(cmd, "username") && opts.username == "" {
-		opts.username, _ = config.CredentialsFromEnv()
-	}
-	if !flagChanged(cmd, "password") && opts.password == "" {
-		_, opts.password = config.CredentialsFromEnv()
-	}
-
-	// WO-37: see resolveAuditOptions — an explicit --timeout 0 must reach the
-	// validation guard rather than being replaced by the default.
-	if opts.timeout == 0 && !flagChanged(cmd, "timeout") {
-		opts.timeout = defaultQueryTimeout
-	}
-
 	return opts, nil
 }
 
-func applyAuditConfigDefaults(cmd *cobra.Command, opts auditOptions, cfg *config.Config) auditOptions {
-	if !flagChanged(cmd, "bootstrap-server") && strings.TrimSpace(opts.bootstrapServer) == "" && strings.TrimSpace(cfg.BootstrapServers) != "" {
-		opts.bootstrapServer = cfg.BootstrapServers
+// resolveConnectionOptions layers config file, environment, and defaults under
+// whatever the operator passed explicitly.
+//
+// WO-36: resolveAuditOptions and resolveCheckOptions performed these same four
+// steps against two identical-but-separate option structs.
+func resolveConnectionOptions(cmd *cobra.Command, c connectionOptions) error {
+	cfg, cfgPath, err := config.Load()
+	if err != nil {
+		return err
 	}
-	if !flagChanged(cmd, "auth-mechanism") && strings.TrimSpace(opts.authMechanism) == "" && strings.TrimSpace(cfg.AuthMechanism) != "" {
-		opts.authMechanism = cfg.AuthMechanism
-	}
-	if !flagChanged(cmd, "output") && strings.TrimSpace(cfg.Format) != "" {
-		opts.output = cfg.Format
-	}
-	if !flagChanged(cmd, "exclude-internal") && cfg.ExcludeInternal != nil {
-		opts.excludeInternal = *cfg.ExcludeInternal
-	}
-	if !flagChanged(cmd, "exclude-topics") && len(cfg.ExcludeTopics) > 0 {
-		opts.excludeTopics = append([]string(nil), cfg.ExcludeTopics...)
-	}
-	if !flagChanged(cmd, "timeout") && cfg.HasTimeout {
-		opts.timeout = cfg.Timeout
-	}
-	// WO-34: TLS material completes the connection surface so a secured cluster
-	// can be expressed in config instead of on every command line.
-	if !flagChanged(cmd, "tls") && cfg.TLSEnabled != nil {
-		opts.tlsEnabled = *cfg.TLSEnabled
-	}
-	if !flagChanged(cmd, "tls-cert") && strings.TrimSpace(cfg.TLSCertFile) != "" {
-		opts.tlsCert = cfg.TLSCertFile
-	}
-	if !flagChanged(cmd, "tls-key") && strings.TrimSpace(cfg.TLSKeyFile) != "" {
-		opts.tlsKey = cfg.TLSKeyFile
-	}
-	if !flagChanged(cmd, "tls-ca") && strings.TrimSpace(cfg.TLSCAFile) != "" {
-		opts.tlsCA = cfg.TLSCAFile
+	if cfg != nil {
+		slog.Debug("loaded defaults from config", "path", cfgPath)
+		applyConnectionConfigDefaults(cmd, cfg, c)
 	}
 
-	return opts
-}
+	applyEnvCredentials(cmd, c)
+	applyDefaultTimeout(cmd, c)
 
-func applyCheckConfigDefaults(cmd *cobra.Command, opts checkOptions, cfg *config.Config) checkOptions {
-	if !flagChanged(cmd, "bootstrap-server") && strings.TrimSpace(opts.bootstrapServer) == "" && strings.TrimSpace(cfg.BootstrapServers) != "" {
-		opts.bootstrapServer = cfg.BootstrapServers
-	}
-	if !flagChanged(cmd, "auth-mechanism") && strings.TrimSpace(opts.authMechanism) == "" && strings.TrimSpace(cfg.AuthMechanism) != "" {
-		opts.authMechanism = cfg.AuthMechanism
-	}
-	if !flagChanged(cmd, "output") && strings.TrimSpace(cfg.Format) != "" {
-		opts.output = cfg.Format
-	}
-	if !flagChanged(cmd, "exclude-internal") && cfg.ExcludeInternal != nil {
-		opts.excludeInternal = *cfg.ExcludeInternal
-	}
-	if !flagChanged(cmd, "exclude-topics") && len(cfg.ExcludeTopics) > 0 {
-		opts.excludeTopics = append([]string(nil), cfg.ExcludeTopics...)
-	}
-	if !flagChanged(cmd, "timeout") && cfg.HasTimeout {
-		opts.timeout = cfg.Timeout
-	}
-	// WO-34: TLS material completes the connection surface so a secured cluster
-	// can be expressed in config instead of on every command line.
-	if !flagChanged(cmd, "tls") && cfg.TLSEnabled != nil {
-		opts.tlsEnabled = *cfg.TLSEnabled
-	}
-	if !flagChanged(cmd, "tls-cert") && strings.TrimSpace(cfg.TLSCertFile) != "" {
-		opts.tlsCert = cfg.TLSCertFile
-	}
-	if !flagChanged(cmd, "tls-key") && strings.TrimSpace(cfg.TLSKeyFile) != "" {
-		opts.tlsKey = cfg.TLSKeyFile
-	}
-	if !flagChanged(cmd, "tls-ca") && strings.TrimSpace(cfg.TLSCAFile) != "" {
-		opts.tlsCA = cfg.TLSCAFile
-	}
-
-	return opts
+	return nil
 }
 
 func flagChanged(cmd *cobra.Command, name string) bool {
@@ -406,6 +287,8 @@ func flagChanged(cmd *cobra.Command, name string) bool {
 func runAudit(cmd *cobra.Command, opts auditOptions) error {
 	start := time.Now()
 
+	conn := opts.connection()
+
 	if strings.TrimSpace(opts.bootstrapServer) == "" {
 		return errors.New("bootstrap-server is required")
 	}
@@ -415,34 +298,15 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 		return err
 	}
 
-	output := strings.ToLower(strings.TrimSpace(opts.output))
-	if output == "" {
-		output = "text"
+	output, err := resolvedOutput(opts.output)
+	if err != nil {
+		return err
 	}
-	if output != "json" && output != "sarif" && output != "spectrehub" && output != "text" {
-		return fmt.Errorf("invalid output format %q (expected json, sarif, spectrehub, or text)", opts.output)
-	}
-	if opts.authMechanism != "" && (opts.username == "" || opts.password == "") {
-		return errors.New("auth-mechanism requires both --username and --password")
-	}
-	if (opts.tlsCert == "") != (opts.tlsKey == "") {
-		return errors.New("--tls-cert and --tls-key must be provided together")
-	}
-	if opts.timeout <= 0 {
-		return errors.New("timeout must be greater than zero")
+	if err := validateConnection(conn); err != nil {
+		return err
 	}
 
-	kafkaCfg := kafka.Config{
-		BootstrapServers: opts.bootstrapServer,
-		AuthMechanism:    opts.authMechanism,
-		Username:         opts.username,
-		Password:         opts.password,
-		TLSEnabled:       opts.tlsEnabled,
-		TLSCertFile:      opts.tlsCert,
-		TLSKeyFile:       opts.tlsKey,
-		TLSCAFile:        opts.tlsCA,
-		QueryTimeout:     opts.timeout,
-	}
+	kafkaCfg := buildKafkaConfig(conn)
 
 	inspector, err := kafka.NewInspector(kafkaCfg)
 	if err != nil {
@@ -535,6 +399,8 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 func runCheck(cmd *cobra.Command, opts checkOptions) error {
 	start := time.Now()
 
+	conn := opts.connection()
+
 	if strings.TrimSpace(opts.bootstrapServer) == "" {
 		return errors.New("bootstrap-server is required")
 	}
@@ -543,21 +409,12 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 		return err
 	}
 
-	output := strings.ToLower(strings.TrimSpace(opts.output))
-	if output == "" {
-		output = "text"
+	output, err := resolvedOutput(opts.output)
+	if err != nil {
+		return err
 	}
-	if output != "json" && output != "sarif" && output != "spectrehub" && output != "text" {
-		return fmt.Errorf("invalid output format %q (expected json, sarif, spectrehub, or text)", opts.output)
-	}
-	if opts.authMechanism != "" && (opts.username == "" || opts.password == "") {
-		return errors.New("auth-mechanism requires both --username and --password")
-	}
-	if (opts.tlsCert == "") != (opts.tlsKey == "") {
-		return errors.New("--tls-cert and --tls-key must be provided together")
-	}
-	if opts.timeout <= 0 {
-		return errors.New("timeout must be greater than zero")
+	if err := validateConnection(conn); err != nil {
+		return err
 	}
 	if strings.TrimSpace(opts.repo) == "" {
 		return errors.New("repo path is required")
@@ -575,17 +432,7 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 		return fmt.Errorf("repo path %q is not a directory", opts.repo)
 	}
 
-	kafkaCfg := kafka.Config{
-		BootstrapServers: opts.bootstrapServer,
-		AuthMechanism:    opts.authMechanism,
-		Username:         opts.username,
-		Password:         opts.password,
-		TLSEnabled:       opts.tlsEnabled,
-		TLSCertFile:      opts.tlsCert,
-		TLSKeyFile:       opts.tlsKey,
-		TLSCAFile:        opts.tlsCA,
-		QueryTimeout:     opts.timeout,
-	}
+	kafkaCfg := buildKafkaConfig(conn)
 
 	inspector, err := kafka.NewInspector(kafkaCfg)
 	if err != nil {
