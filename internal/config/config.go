@@ -47,6 +47,12 @@ type Config struct {
 	TLSCertFile string
 	TLSKeyFile  string
 	TLSCAFile   string
+
+	// ManagedTopics are operator-declared glob patterns for backing topics this
+	// tool cannot recognise by name — renamed Connect topics, custom Streams
+	// application IDs. WO-41: name-based recognition is best-effort, so a
+	// deployment that renames its backing topics must be able to declare them.
+	ManagedTopics []string
 }
 
 // CredentialsFromEnv returns SASL credentials supplied via the environment.
@@ -201,6 +207,22 @@ func parse(data []byte) (*Config, error) {
 				return nil, fmt.Errorf("line %d: parse exclude_topics: %w", lineNum, err)
 			}
 			cfg.ExcludeTopics = append(cfg.ExcludeTopics, items...)
+		case "managed_topics":
+			if value == "" {
+				items, next, err := parseBlockList(lines, i+1)
+				if err != nil {
+					return nil, err
+				}
+				cfg.ManagedTopics = append(cfg.ManagedTopics, items...)
+				i = next - 1
+				continue
+			}
+
+			items, err := parseInlineList(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: parse managed_topics: %w", lineNum, err)
+			}
+			cfg.ManagedTopics = append(cfg.ManagedTopics, items...)
 		case "exclude_internal":
 			scalar, err := parseScalar(value)
 			if err != nil {
@@ -268,6 +290,7 @@ func parse(data []byte) (*Config, error) {
 	}
 
 	cfg.ExcludeTopics = normalizeList(cfg.ExcludeTopics)
+	cfg.ManagedTopics = normalizeList(cfg.ManagedTopics)
 
 	return cfg, nil
 }

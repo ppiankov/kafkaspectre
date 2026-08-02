@@ -133,6 +133,10 @@ func applyConnectionConfigDefaults(cmd *cobra.Command, cfg *config.Config, c con
 	if !flagChanged(cmd, "tls-ca") && strings.TrimSpace(cfg.TLSCAFile) != "" {
 		*c.tlsCA = cfg.TLSCAFile
 	}
+	// WO-41: without this the operator escape hatch is unreachable — the very
+	// "parsed but never wired" defect class this review set out to find.
+	// Applied process-wide once, before any scanning begins.
+	kafka.SetExtraManagedPatterns(cfg.ManagedTopics)
 }
 
 // applyEnvCredentials sources SASL credentials from the environment.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ppiankov/kafkaspectre/internal/config"
+	"github.com/ppiankov/kafkaspectre/internal/kafka"
 )
 
 func withConfig(t *testing.T, body string) {
@@ -109,5 +110,28 @@ func TestTLSConfigReachesKafkaConfigForCheck(t *testing.T) {
 	kafkaCfg := buildKafkaConfig(resolved.connection())
 	if !kafkaCfg.TLSEnabled || kafkaCfg.TLSCAFile != "/certs/ca.pem" {
 		t.Fatalf("TLS config did not reach check's kafka.Config: %+v", kafkaCfg)
+	}
+}
+
+// WO-41: the operator escape hatch is worthless if no operator can reach it.
+// SetExtraManagedPatterns had no production caller until managed_topics was
+// wired — the same "parsed but never wired" defect class this review hunts.
+func TestManagedTopicsConfigKeyReachesClassification(t *testing.T) {
+	original := []string(nil)
+	t.Cleanup(func() { kafka.SetExtraManagedPatterns(original) })
+
+	withConfig(t, "bootstrap_servers: kafka:9092\nmanaged_topics:\n  - \"docker-connect-*\"\n  - \"acme-*-state\"\n")
+
+	if _, err := resolveAuditOptions(newAuditCmd(), auditOptions{output: "text"}); err != nil {
+		t.Fatalf("resolveAuditOptions: %v", err)
+	}
+
+	for _, declared := range []string{"docker-connect-configs", "acme-billing-state"} {
+		if !kafka.IsManagedTopic(declared) {
+			t.Errorf("operator-declared pattern did not reach classification for %q", declared)
+		}
+	}
+	if kafka.IsManagedTopic("orders") {
+		t.Error("operator patterns captured an unrelated topic")
 	}
 }

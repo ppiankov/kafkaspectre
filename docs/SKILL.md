@@ -105,7 +105,12 @@ groups referencing it hold no live members.
 
 Optional `.kafkaspectre.yaml` in the working directory or `$HOME`. Keys:
 `bootstrap_servers`, `auth_mechanism`, `exclude_topics`, `exclude_internal`,
-`format`, `timeout`, `tls`, `tls_cert`, `tls_key`, `tls_ca`.
+`format`, `timeout`, `tls`, `tls_cert`, `tls_key`, `tls_ca`,
+`managed_topics`.
+
+`managed_topics` takes glob patterns for service backing topics this tool
+cannot recognise by name — renamed Kafka Connect topics, custom Streams
+application IDs. Declared topics are never recommended for deletion.
 
 Credentials are never read from the config file. Supply them via the
 `KAFKASPECTRE_USERNAME` and `KAFKASPECTRE_PASSWORD` environment variables.
