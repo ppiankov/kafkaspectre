@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-02
+
+### Fixed
+
+- Removed dead Go Report Card badge from README.
+- SpectreHub links in README now point to spectrehub.dev.
+
 ### Fixed
 
 - Service-managed topics are no longer recommended for deletion. Schema Registry

@@ -1,10 +1,9 @@
 # kafkaspectre
 
 [![CI](https://github.com/ppiankov/kafkaspectre/actions/workflows/ci.yml/badge.svg)](https://github.com/ppiankov/kafkaspectre/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ppiankov/kafkaspectre)](https://goreportcard.com/report/github.com/ppiankov/kafkaspectre)
 [![ANCC](https://img.shields.io/badge/ANCC-compliant-brightgreen)](https://ancc.dev)
 
-**kafkaspectre** — Kafka cluster auditor for unused topics and drift. Part of [SpectreHub](https://github.com/ppiankov/spectrehub).
+**kafkaspectre** — Kafka cluster auditor for unused topics and drift. Part of [SpectreHub](https://spectrehub.dev).
 
 ## What it is
 
@@ -61,7 +60,7 @@ kafkaspectre audit --bootstrap-server localhost:9092 --output json
 
 ## SpectreHub integration
 
-kafkaspectre feeds Kafka cluster findings into [SpectreHub](https://github.com/ppiankov/spectrehub) for unified visibility across your infrastructure.
+kafkaspectre feeds Kafka cluster findings into [SpectreHub](https://spectrehub.dev) for unified visibility across your infrastructure.
 
 ```sh
 spectrehub collect --tool kafkaspectre
