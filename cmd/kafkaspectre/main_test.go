@@ -162,7 +162,11 @@ func TestBuildAuditResult(t *testing.T) {
 			t.Fatalf("cluster health score = %q, want %q", result.Summary.ClusterHealthScore, "critical")
 		}
 
-		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "__internal", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
+		// WO-39: __internal is still ANALYSED here (--exclude-internal is off)
+		// and still appears in UnusedTopics, but it must never be named for
+		// cleanup — its own recommendation is "DO NOT DELETE". This assertion
+		// previously required the contradiction.
+		if got, want := result.Summary.RecommendedCleanup, []string{"low-topic", "medium-topic", "high-topic"}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("recommended cleanup = %v, want %v", got, want)
 		}
 	})
@@ -527,17 +531,17 @@ func TestRecommendedCleanup(t *testing.T) {
 		{Name: "m-high", CleanupPriority: 2, Risk: "high"},
 	}
 
-	if got := recommendedCleanup(nil, 5); got != nil {
-		t.Fatalf("recommendedCleanup(nil, 5) = %v, want nil", got)
+	if got := recommendedCleanup(nil, 5, true); got != nil {
+		t.Fatalf("recommendedCleanup(nil, 5, true) = %v, want nil", got)
 	}
-	if got := recommendedCleanup(unused, 0); got != nil {
-		t.Fatalf("recommendedCleanup(unused, 0) = %v, want nil", got)
+	if got := recommendedCleanup(unused, 0, true); got != nil {
+		t.Fatalf("recommendedCleanup(unused, 0, true) = %v, want nil", got)
 	}
 
-	got := recommendedCleanup(unused, 3)
+	got := recommendedCleanup(unused, 3, true)
 	want := []string{"a-low", "z-low", "m-high"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("recommendedCleanup(unused, 3) = %v, want %v", got, want)
+		t.Fatalf("recommendedCleanup(unused, 3, true) = %v, want %v", got, want)
 	}
 }
 

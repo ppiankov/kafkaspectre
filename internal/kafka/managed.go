@@ -1,6 +1,9 @@
 package kafka
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // ManagedTopicOwner names the service that owns a provider-managed topic.
 type ManagedTopicOwner string
@@ -18,6 +21,12 @@ const (
 	OwnerConnect ManagedTopicOwner = "Kafka Connect"
 	// OwnerMSK covers AWS MSK service-managed topics.
 	OwnerMSK ManagedTopicOwner = "AWS MSK"
+	// OwnerStreams covers Kafka Streams changelog and repartition topics.
+	OwnerStreams ManagedTopicOwner = "Kafka Streams"
+	// OwnerMirrorMaker covers MirrorMaker 2 internal topics.
+	OwnerMirrorMaker ManagedTopicOwner = "MirrorMaker 2"
+	// OwnerOperator marks a topic declared managed by the operator.
+	OwnerOperator ManagedTopicOwner = "operator-declared"
 )
 
 // exactManagedTopics maps topic names that are managed in full to their owner.
@@ -27,6 +36,7 @@ var exactManagedTopics = map[string]ManagedTopicOwner{
 	"connect-configs": OwnerConnect,
 	"connect-offsets": OwnerConnect,
 	"connect-status":  OwnerConnect,
+	"heartbeats":      OwnerMirrorMaker,
 }
 
 // managedTopicPrefixes maps topic name prefixes to the owning service. Order
@@ -38,6 +48,39 @@ var managedTopicPrefixes = []struct {
 	{"__amazon_msk_", OwnerMSK},
 	{"_confluent", OwnerConfluent},
 	{"__", OwnerKafka},
+}
+
+// managedTopicSuffixes maps topic name suffixes to the owning service.
+//
+// WO-41: Kafka Streams identifies its backing topics by SUFFIX, not prefix —
+// `<application.id>-<store>-changelog` and `-repartition`. Changelogs are read
+// by restore consumers via assign(), so they never have a consumer group and
+// were classified "unused, safe to delete". Deleting one destroys the state
+// store and the application cannot restore.
+var managedTopicSuffixes = []struct {
+	suffix string
+	owner  ManagedTopicOwner
+}{
+	{"-changelog", OwnerStreams},
+	{"-repartition", OwnerStreams},
+	{".checkpoints.internal", OwnerMirrorMaker},
+}
+
+// managedTopicPrefixes2 covers MirrorMaker 2 internals, which use dotted
+// cluster-qualified names rather than a single fixed prefix.
+var mirrorMakerPrefixes = []string{"mm2-offsets.", "mm2-configs.", "mm2-status."}
+
+// extraManagedPatterns holds operator-declared glob patterns for backing topics
+// this tool cannot recognise by name — renamed Connect topics
+// (`docker-connect-configs`) and custom Streams application IDs.
+//
+// WO-41: name-based recognition is best-effort by construction. A deployment
+// that renames its backing topics must be able to declare them.
+var extraManagedPatterns []string
+
+// SetExtraManagedPatterns declares additional managed-topic glob patterns.
+func SetExtraManagedPatterns(patterns []string) {
+	extraManagedPatterns = append([]string(nil), patterns...)
 }
 
 // ManagedTopicOwnerFor reports which service manages a topic, or OwnerNone.
@@ -52,9 +95,29 @@ func ManagedTopicOwnerFor(topic string) ManagedTopicOwner {
 		return owner
 	}
 
+	for _, candidate := range managedTopicSuffixes {
+		if strings.HasSuffix(topic, candidate.suffix) {
+			return candidate.owner
+		}
+	}
+
+	for _, prefix := range mirrorMakerPrefixes {
+		if strings.HasPrefix(topic, prefix) {
+			return OwnerMirrorMaker
+		}
+	}
+
 	for _, candidate := range managedTopicPrefixes {
 		if strings.HasPrefix(topic, candidate.prefix) {
 			return candidate.owner
+		}
+	}
+
+	// WO-41: operator-declared patterns are checked last so they can only ADD
+	// protection, never downgrade a topic this tool already recognises.
+	for _, pattern := range extraManagedPatterns {
+		if matched, err := path.Match(pattern, topic); err == nil && matched {
+			return OwnerOperator
 		}
 	}
 

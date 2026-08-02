@@ -121,6 +121,16 @@ func TestValidationErrorStringsUnchanged(t *testing.T) {
 			opts := base()
 			tc.mutate(&opts)
 
+			// WO-36: exercise validateConnection where it can, so deleting a
+			// check from the shared function actually fails this test. The
+			// bootstrap-server check used to be written three times, and this
+			// test hit a per-command copy rather than the shared one.
+			if tc.name != "invalid-output-format" {
+				if err := validateConnection(opts.connection()); err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("validateConnection error = %v, want %q", err, tc.wantErr)
+				}
+			}
+
 			err := runAudit(newAuditCmd(), opts)
 			if err == nil {
 				t.Fatalf("expected error %q, got nil", tc.wantErr)

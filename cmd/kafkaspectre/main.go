@@ -289,10 +289,6 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 
 	conn := opts.connection()
 
-	if strings.TrimSpace(opts.bootstrapServer) == "" {
-		return errors.New("bootstrap-server is required")
-	}
-
 	excludePatterns, err := normalizeExcludePatterns(opts.excludeTopics)
 	if err != nil {
 		return err
@@ -401,9 +397,6 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 
 	conn := opts.connection()
 
-	if strings.TrimSpace(opts.bootstrapServer) == "" {
-		return errors.New("bootstrap-server is required")
-	}
 	excludePatterns, err := normalizeExcludePatterns(opts.excludeTopics)
 	if err != nil {
 		return err
@@ -648,7 +641,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		HighRiskCount:                highRisk,
 		MediumRiskCount:              mediumRisk,
 		LowRiskCount:                 lowRisk,
-		RecommendedCleanup:           recommendedCleanup(unusedTopics, 10),
+		RecommendedCleanup:           recommendedCleanup(unusedTopics, 10, consumerDataComplete),
 		ClusterHealthScore:           clusterHealthScore(unusedPercent),
 		PotentialSavingsInfo:         fmt.Sprintf("%d unused topics representing %d partitions (%.1f%% of total partitions)", unusedCount, unusedPartitions, unusedPartitionsPercent),
 	}
@@ -694,16 +687,39 @@ func unusedReason(topic *kafka.TopicInfo, abandoned []string, consumerDataComple
 	return "No consumer groups found"
 }
 
+// doNotDeletePrefix marks a recommendation that forbids deletion. It is the
+// single token both the per-topic advice and the summary cleanup list key on.
+//
+// WO-39: the two used to be decided independently and disagreed.
+const doNotDeletePrefix = "DO NOT DELETE"
+
+// doNotActAdvice is the recommendation emitted when the scan was degraded.
+const doNotActAdvice = "Do not act on this finding — re-run once the cluster is fully readable"
+
+// deletable reports whether a finding's own recommendation permits deletion.
+//
+// WO-39: the invariant is that nothing may name a topic for cleanup unless this
+// returns true for it, so the report cannot contradict itself.
+func deletable(topic *reporter.UnusedTopic) bool {
+	if topic == nil || topic.ManagedBy != "" {
+		return false
+	}
+	if strings.HasPrefix(topic.Recommendation, doNotDeletePrefix) {
+		return false
+	}
+	return topic.Recommendation != doNotActAdvice
+}
+
 // unusedRecommendation decides what to advise for a topic with no consumers.
 //
 // WO-26: a managed topic is never a deletion candidate regardless of risk score.
 // WO-27: an unverified reading must not carry deletion advice at all.
 func unusedRecommendation(topic *kafka.TopicInfo, risk string, consumerDataComplete bool) string {
 	if owner := topic.ManagedOwner(); owner != kafka.OwnerNone {
-		return fmt.Sprintf("DO NOT DELETE — backing store for %s", owner)
+		return fmt.Sprintf("%s — backing store for %s", doNotDeletePrefix, owner)
 	}
 	if !consumerDataComplete {
-		return "Do not act on this finding — re-run once the cluster is fully readable"
+		return doNotActAdvice
 	}
 	return recommendationForRisk(risk)
 }
@@ -760,6 +776,7 @@ func buildCheckResult(scanResult *scanner.Result, metadata *kafka.ClusterMetadat
 
 func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.CheckResult {
 	consumersByTopic := buildConsumersByTopic(metadata)
+	consumerDataComplete := metadata.ConsumerGroupsComplete()
 
 	clusterTopics := make(map[string]*kafka.TopicInfo, len(metadata.Topics))
 	for name, topic := range metadata.Topics {
@@ -781,6 +798,14 @@ func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.Clu
 	repoTopics := make(map[string]*scanner.TopicReference, len(scanResult.Topics))
 	for topic, ref := range scanResult.Topics {
 		if shouldExcludeTopic(topic, excludeTopics) {
+			continue
+		}
+		// WO-42: the hold-out must apply to BOTH sides of the union. Filtering
+		// only clusterTopics made a managed topic referenced in the repo
+		// reappear with inCluster=false and get reported MISSING_IN_CLUSTER —
+		// newly reachable because .properties scanning picks up Connect worker
+		// keys like offset.storage.topic.
+		if kafka.ManagedTopicOwnerFor(topic) != kafka.OwnerNone && !includeManaged {
 			continue
 		}
 		repoTopics[topic] = ref
@@ -815,7 +840,7 @@ func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.Clu
 		consumerGroups := append([]string(nil), consumersByTopic[topic]...)
 		hasConsumers := inCluster && len(consumerGroups) > 0
 
-		status, reason := classifyCheckStatus(referencedInRepo, inCluster, hasConsumers)
+		status, reason := classifyCheckStatus(referencedInRepo, inCluster, hasConsumers, consumerDataComplete)
 		finding := &reporter.CheckFinding{
 			Topic:            topic,
 			Status:           status,
@@ -854,6 +879,14 @@ func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.Clu
 	return &reporter.CheckResult{
 		Summary:  summary,
 		Findings: findings,
+		// WO-38: the check path previously had no reliability signal at all, so
+		// a failed DescribeGroups made it report every cluster topic as UNUSED
+		// with a confident reason and exit 6 — the same fail-open bug WO-27
+		// fixed for audit, still live on this surface.
+		Reliability: reporter.ScanReliability{
+			ConsumerGroupsComplete: consumerDataComplete,
+			ReadErrors:             readErrors(metadata),
+		},
 	}
 }
 
@@ -933,11 +966,19 @@ func metadataStats(metadata *kafka.ClusterMetadata) (topicCount int, partitionCo
 	return topicCount, partitionCount
 }
 
-func classifyCheckStatus(referencedInRepo, inCluster, hasConsumers bool) (reporter.CheckStatus, string) {
+// classifyCheckStatus decides a topic's check status and the reason shown.
+//
+// WO-38: the UNUSED reasons asserted "has no active consumer groups" as fact.
+// When the consumer-group read failed the tool saw zero groups for every topic,
+// so that sentence was a confident claim about data it never read.
+func classifyCheckStatus(referencedInRepo, inCluster, hasConsumers, consumerDataComplete bool) (reporter.CheckStatus, string) {
 	switch {
 	case referencedInRepo && !inCluster:
 		return reporter.CheckStatusMissingInCluster, "topic is referenced in code but does not exist in cluster"
 	case inCluster && !hasConsumers:
+		if !consumerDataComplete {
+			return reporter.CheckStatusUnused, "consumer group data could not be read; unused status is UNVERIFIED"
+		}
 		if referencedInRepo {
 			return reporter.CheckStatusUnused, "topic is referenced in code and exists in cluster but has no active consumer groups"
 		}
@@ -987,13 +1028,32 @@ func recommendationForRisk(risk string) string {
 	}
 }
 
-func recommendedCleanup(unused []*reporter.UnusedTopic, limit int) []string {
-	if len(unused) == 0 || limit <= 0 {
+// recommendedCleanup names the topics safest to delete first.
+//
+// This list is the field automation reads — docs/cleanup-guide.md builds delete
+// lists from it. It must therefore never contain a topic whose own
+// recommendation forbids deletion.
+//
+// WO-39: it previously took the raw unused slice, so a default `audit --output
+// json` listed __consumer_offsets for cleanup while the same document said
+// "DO NOT DELETE — backing store for Kafka broker" for that topic, and a
+// degraded scan published a named delete list built from a cluster it could not
+// read. Deletability is decided once, by deletable(), and both the per-topic
+// recommendation and this list derive from it.
+func recommendedCleanup(unused []*reporter.UnusedTopic, limit int, consumerDataComplete bool) []string {
+	if len(unused) == 0 || limit <= 0 || !consumerDataComplete {
 		return nil
 	}
 
-	candidates := make([]*reporter.UnusedTopic, len(unused))
-	copy(candidates, unused)
+	candidates := make([]*reporter.UnusedTopic, 0, len(unused))
+	for _, topic := range unused {
+		if deletable(topic) {
+			candidates = append(candidates, topic)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
 
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].CleanupPriority != candidates[j].CleanupPriority {

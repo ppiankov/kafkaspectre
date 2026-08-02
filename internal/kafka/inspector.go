@@ -197,7 +197,13 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 			slog.Warn("failed to describe consumer groups", "error", err, "consumer_group_count", len(groupIDs))
 			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
 				fmt.Sprintf("describe consumer groups (%d groups): %v", len(groupIDs), err))
-		} else {
+		}
+		// WO-43: kadm returns BOTH a populated result and an error on a partial
+		// shard failure, so `described` must be consumed even when err != nil.
+		// Discarding it meant one unreachable coordinator blanked out consumer
+		// data for the whole cluster when most of it was readable. The read is
+		// still marked incomplete above — partial data never claims completeness.
+		{
 			for _, described := range describedGroups.Sorted() {
 				// WO-27: DescribeGroups can succeed overall while individual
 				// groups carry their own error. Such a group yields no topics,

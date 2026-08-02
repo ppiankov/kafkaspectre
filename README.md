@@ -48,7 +48,7 @@ make build
 ### Usage
 
 ```sh
-kafkaspectre audit --brokers localhost:9092 --format json
+kafkaspectre audit --bootstrap-server localhost:9092 --output json
 ```
 
 ## CLI commands

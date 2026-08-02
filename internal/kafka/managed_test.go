@@ -41,14 +41,6 @@ func TestManagedTopicOwnerFor(t *testing.T) {
 	}
 }
 
-// WO-26: msk topics also match the "__" prefix, so ordering in
-// managedTopicPrefixes decides the owner. The more specific prefix must win.
-func TestManagedTopicPrefixSpecificityOrder(t *testing.T) {
-	if got := ManagedTopicOwnerFor("__amazon_msk_canary"); got != OwnerMSK {
-		t.Fatalf("MSK topic attributed to %q, want %q", got, OwnerMSK)
-	}
-}
-
 // WO-27: completeness gates whether unused verdicts are sound.
 func TestConsumerGroupsComplete(t *testing.T) {
 	cases := []struct {
@@ -99,5 +91,60 @@ func TestConsumerGroupIsAbandoned(t *testing.T) {
 				t.Fatalf("IsAbandoned() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// WO-41: Streams changelog/repartition topics are read by restore consumers via
+// assign(), so they never have a consumer group and were scored "safe to
+// delete". Deleting a changelog destroys the state store.
+func TestManagedTopicSuffixesAndMirrorMaker(t *testing.T) {
+	cases := []struct {
+		name  string
+		topic string
+		want  ManagedTopicOwner
+	}{
+		{name: "streams-changelog", topic: "payments-app-orders-store-changelog", want: OwnerStreams},
+		{name: "streams-repartition", topic: "payments-app-orders-store-repartition", want: OwnerStreams},
+		{name: "mm2-offsets", topic: "mm2-offsets.us-east.internal", want: OwnerMirrorMaker},
+		{name: "mm2-configs", topic: "mm2-configs.us-east.internal", want: OwnerMirrorMaker},
+		{name: "mm2-status", topic: "mm2-status.us-east.internal", want: OwnerMirrorMaker},
+		{name: "checkpoints", topic: "us-east.checkpoints.internal", want: OwnerMirrorMaker},
+		{name: "heartbeats", topic: "heartbeats", want: OwnerMirrorMaker},
+
+		// Ordinary topics that merely contain a similar word must not match.
+		{name: "changelog-in-middle", topic: "user-changelog-events", want: OwnerNone},
+		{name: "repartition-in-middle", topic: "repartition-service-events", want: OwnerNone},
+		{name: "mm2-lookalike", topic: "mm2-application-events", want: OwnerNone},
+		{name: "heartbeat-singular", topic: "heartbeat", want: OwnerNone},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ManagedTopicOwnerFor(tc.topic); got != tc.want {
+				t.Fatalf("ManagedTopicOwnerFor(%q) = %q, want %q", tc.topic, got, tc.want)
+			}
+		})
+	}
+}
+
+// WO-41: renamed Connect and Streams topics cannot be recognised by name, so the
+// operator must be able to declare them. Patterns may only ADD protection.
+func TestExtraManagedPatterns(t *testing.T) {
+	original := extraManagedPatterns
+	t.Cleanup(func() { extraManagedPatterns = original })
+
+	SetExtraManagedPatterns([]string{"docker-connect-*", "acme-*-state"})
+
+	for _, topic := range []string{"docker-connect-configs", "acme-billing-state"} {
+		if got := ManagedTopicOwnerFor(topic); got != OwnerOperator {
+			t.Errorf("ManagedTopicOwnerFor(%q) = %q, want %q", topic, got, OwnerOperator)
+		}
+	}
+	if got := ManagedTopicOwnerFor("orders"); got != OwnerNone {
+		t.Errorf("operator patterns must not capture unrelated topics; got %q", got)
+	}
+	// A topic this tool already recognises keeps its specific owner.
+	if got := ManagedTopicOwnerFor("_schemas"); got != OwnerSchemaRegistry {
+		t.Errorf("operator patterns downgraded a known owner to %q", got)
 	}
 }

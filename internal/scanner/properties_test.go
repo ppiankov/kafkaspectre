@@ -50,6 +50,44 @@ func TestScanPropertiesFile(t *testing.T) {
 	}
 }
 
+// WO-35: the key-name filter is the whole feature. Without it, any properties
+// key with a topic-shaped value becomes a phantom topic reference, and phantom
+// references suppress genuine UNREFERENCED_IN_REPO findings in `check`.
+// These values are all valid topic names, so only the key filter rejects them.
+func TestPropertiesNonTopicKeysAreIgnored(t *testing.T) {
+	result := scanDir(t, map[string]string{
+		"app.properties": "spring.application.name=my-service\n" +
+			"client.id=audit-client\n" +
+			"group.id=orders-consumer\n" +
+			"topic=real-topic\n",
+	})
+
+	for _, phantom := range []string{"my-service", "audit-client", "orders-consumer"} {
+		if hasTopic(result, phantom) {
+			t.Errorf("non-topic key produced phantom topic reference %q", phantom)
+		}
+	}
+	if !hasTopic(result, "real-topic") {
+		t.Fatalf("genuine topic key was not extracted; topics = %v", result.Topics)
+	}
+}
+
+// WO-35: .properties comments use both # and !.
+func TestPropertiesCommentsIgnored(t *testing.T) {
+	result := scanDir(t, map[string]string{
+		"c.properties": "# topic=hash-ghost\n! topic=bang-ghost\ntopic=real\n",
+	})
+
+	for _, ghost := range []string{"hash-ghost", "bang-ghost"} {
+		if hasTopic(result, ghost) {
+			t.Errorf("commented-out line produced topic reference %q", ghost)
+		}
+	}
+	if !hasTopic(result, "real") {
+		t.Fatal("uncommented topic was not extracted")
+	}
+}
+
 // WO-35: Spring Boot puts topics under namespaced keys.
 func TestScanSpringApplicationProperties(t *testing.T) {
 	result := scanDir(t, map[string]string{
@@ -90,11 +128,18 @@ func TestScanAddedSourceExtensions(t *testing.T) {
 		"consumer.js":    "const topic = \"js-events\";\n",
 	}
 
+	want := map[string]string{
+		"Consumer.kt":    "kotlin-events",
+		"Consumer.scala": "scala-events",
+		"consumer.ts":    "ts-events",
+		"consumer.js":    "js-events",
+	}
+
 	for file, body := range cases {
 		t.Run(file, func(t *testing.T) {
 			result := scanDir(t, map[string]string{file: body})
-			if len(result.Topics) == 0 {
-				t.Fatalf("%s produced no topic references", file)
+			if !hasTopic(result, want[file]) {
+				t.Fatalf("%s: %q not extracted; topics = %v", file, want[file], result.Topics)
 			}
 		})
 	}

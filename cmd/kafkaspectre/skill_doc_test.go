@@ -4,8 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,7 +15,10 @@ import (
 const skillDocPath = "../../docs/SKILL.md"
 
 // commandHeadingPattern matches "### kafkaspectre <command>" headings.
-var commandHeadingPattern = regexp.MustCompile(`(?m)^#+\s+kafkaspectre\s+([a-z][a-z0-9-]*)\s*$`)
+var commandHeadingPattern = regexp.MustCompile(`(?m)^#+\s+kafkaspectre\s+([a-z][a-z0-9-]*)\b.*$`)
+
+// commandInvocationPattern matches `kafkaspectre <command>` inside examples.
+var commandInvocationPattern = regexp.MustCompile(`(?m)\bkafkaspectre\s+([a-z][a-z0-9-]*)\b`)
 
 // docFlagPattern matches a long flag mentioned anywhere in the document.
 var docFlagPattern = regexp.MustCompile(`--([a-z][a-z0-9-]*)`)
@@ -51,6 +54,10 @@ func TestSkillDocCommandsExist(t *testing.T) {
 	if len(matches) == 0 {
 		t.Fatal("no command headings found in SKILL.md; the parser or the doc structure changed")
 	}
+
+	// Commands invoked in examples must resolve too — the original bad doc put
+	// `kafkaspectre scan --output json` in a parsing example, not only a heading.
+	matches = append(matches, commandInvocationPattern.FindAllStringSubmatch(doc, -1)...)
 
 	for _, match := range matches {
 		name := match[1]
@@ -129,7 +136,7 @@ func TestSkillDocExitCodesMatchConstants(t *testing.T) {
 		{ExitNetwork, "network error"},
 		{ExitFindings, "findings detected"},
 	} {
-		line := regexp.MustCompile(`(?m)^-\s*` + itoa(want.code) + `:\s*(.+)$`)
+		line := regexp.MustCompile(`(?m)^-\s*` + strconv.Itoa(want.code) + `:\s*(.+)$`)
 		match := line.FindStringSubmatch(doc)
 		if match == nil {
 			t.Errorf("SKILL.md does not document exit code %d (%s)", want.code, want.hint)
@@ -145,36 +152,13 @@ func TestSkillDocExitCodesMatchConstants(t *testing.T) {
 func TestSkillDocDescribesTheRightTool(t *testing.T) {
 	doc := strings.ToLower(readSkillDoc(t))
 
-	if strings.Contains(doc, "acl") {
+	// Word-boundary match: a substring test also fires on "oracle" and
+	// "obstacle" — the project's own tagline is "Mirrors, not oracles", so a
+	// substring test would fail the build on a legitimate edit.
+	if regexp.MustCompile(`(?i)\bacls?\b`).MatchString(doc) {
 		t.Error("SKILL.md claims ACL auditing; no ACL logic exists in this tool")
 	}
 	if !strings.Contains(doc, "unused") {
 		t.Error("SKILL.md does not mention unused-topic auditing, which is what this tool does")
-	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := ""
-	for n > 0 {
-		digits = string(rune('0'+n%10)) + digits
-		n /= 10
-	}
-	return digits
-}
-
-// setHomeDir points os.UserHomeDir at dir on every supported platform.
-//
-// WO-32: os.UserHomeDir reads $HOME on Unix but %USERPROFILE% on Windows, so
-// setting HOME alone left the Windows CI leg reading the runner's real home
-// directory and picking up whatever config lived there.
-func setHomeDir(t *testing.T, dir string) {
-	t.Helper()
-
-	t.Setenv("HOME", dir)
-	if runtime.GOOS == "windows" {
-		t.Setenv("USERPROFILE", dir)
 	}
 }
