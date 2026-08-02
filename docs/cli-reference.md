@@ -28,10 +28,16 @@ kafkaspectre audit --bootstrap-server kafka:9092 --tls --tls-cert cert.pem --tls
 # Output formats
 kafkaspectre audit --bootstrap-server kafka:9092 --output json
 kafkaspectre audit --bootstrap-server kafka:9092 --output sarif
+kafkaspectre audit --bootstrap-server kafka:9092 --output spectrehub
 kafkaspectre check --repo ./app --bootstrap-server kafka:9092 --output json
 
 # Exclusions
 kafkaspectre audit --bootstrap-server kafka:9092 --exclude-internal --exclude-topics "_confluent-*"
+
+# Service-managed topics (Schema Registry, Connect, MirrorMaker 2, Streams) are
+# held out of the analysis by default. Surface them with an explicit
+# do-not-delete recommendation:
+kafkaspectre audit --bootstrap-server kafka:9092 --include-managed
 
 # Timeout
 kafkaspectre audit --bootstrap-server kafka:9092 --timeout 30s
@@ -49,7 +55,7 @@ cmd/kafkaspectre/main.go         Cobra CLI: audit, check, version
 internal/
   kafka/inspector.go             Kafka client (franz-go), metadata fetching
   kafka/retry.go                 Connection retry with exponential backoff
-  reporter/                      Output formatters (JSON, SARIF, text)
+  reporter/                      Output formatters (JSON, SARIF, SpectreHub, text)
   scanner/scanner.go             Repository code scanner for topic references
   config/config.go               YAML config loader (~/.kafkaspectre.yaml)
   logging/logging.go             Structured logging (slog)
@@ -74,7 +80,7 @@ kafkaspectre audit
   │   └─ Generate recommendation
   │
   ├─ Compute cluster health score
-  └─ Output (json | sarif | text)
+  └─ Output (json | sarif | spectrehub | text)
 ```
 
 
@@ -95,7 +101,12 @@ kafkaspectre audit
 **Authentication:**
 - SASL mechanisms: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
 - TLS support with custom CA, client certificate, and private key
-- Credentials via CLI flags or config file (`~/.kafkaspectre.yaml`)
+- Credentials via CLI flags or the `KAFKASPECTRE_USERNAME` and
+  `KAFKASPECTRE_PASSWORD` environment variables. They are **not** readable from
+  the config file — a `username` or `password` key there is a parse error, so a
+  credential never sits in plaintext on disk by accident.
+- Connection settings (`bootstrap_servers`, `auth_mechanism`, `tls`, `tls_cert`,
+  `tls_key`, `tls_ca`) may live in `~/.kafkaspectre.yaml`
 
 **Safety:**
 - Read-only cluster operations — never creates, deletes, or modifies topics
@@ -113,6 +124,11 @@ kafkaspectre audit
 
 - **Cluster access required** — cannot audit without a live Kafka connection
 - **Consumer group metadata only** — does not analyze actual message throughput or lag
+- **Scan reliability is reported, not assumed** — if consumer group data cannot
+  be read, findings are marked UNVERIFIED, deletion advice is suppressed, and
+  `reliability.consumer_groups_complete` is `false` in JSON output
+- **Managed-topic detection is name-based and best-effort** — renamed Connect or
+  Streams backing topics cannot be recognised automatically
 - **No historical trend analysis** — single point-in-time audit (use SpectreHub for trends)
 - **Pattern-based code scanning** — may miss dynamic topic name construction
 - **Network timeout** — default 10s may be too short for large clusters (use `--timeout`)
@@ -121,7 +137,7 @@ kafkaspectre audit
 
 ## Project Status
 
-**Status: Stable** · **v0.2.0** · Active development
+**Status: Stable** · **v0.2.1** · Active development
 
 | Milestone | Status |
 |-----------|--------|
