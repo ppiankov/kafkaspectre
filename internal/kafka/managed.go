@@ -7,8 +7,10 @@ import (
 
 // ManagedTopicOwner names the service that owns a provider-managed topic.
 // WO-26: managed topic owner type
+// WO-26: managed topic owner type
 type ManagedTopicOwner string
 
+// WO-26: managed topic owner constants
 const (
 	// OwnerNone marks a topic as not managed by any known service.
 	OwnerNone ManagedTopicOwner = ""
