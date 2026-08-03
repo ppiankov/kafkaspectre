@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ppiankov/kafkaspectre/internal/kafka"
+	"github.com/ppiankov/kafkaspectre/internal/reporter"
 	"github.com/ppiankov/kafkaspectre/internal/scanner"
 )
 
@@ -133,5 +134,40 @@ func TestDegradedScanErrorMessage(t *testing.T) {
 func TestDefaultTimeoutValue(t *testing.T) {
 	if defaultQueryTimeout != 60*time.Second {
 		t.Fatalf("defaultQueryTimeout = %v, want 60s (WO-45: must cover 200+ group clusters)", defaultQueryTimeout)
+	}
+}
+
+// WO-52/round-2: classifyCheckResult clean-with-findings path was untested.
+func TestClassifyCheckResultCleanWithFindings(t *testing.T) {
+	result := &reporter.CheckResult{
+		Summary: &reporter.CheckSummary{
+			TotalFindings: 5,
+			OKCount:       2,
+		},
+		Reliability: reporter.ScanReliability{ConsumerGroupsComplete: true},
+	}
+
+	err := classifyCheckResult(result)
+
+	var fe *FindingsError
+	if !errors.As(err, &fe) {
+		t.Fatalf("classifyCheckResult clean+findings returned %T, want *FindingsError", err)
+	}
+	if fe.Count != 3 {
+		t.Fatalf("FindingsError.Count = %d, want 3", fe.Count)
+	}
+}
+
+func TestClassifyCheckResultCleanNoFindings(t *testing.T) {
+	result := &reporter.CheckResult{
+		Summary: &reporter.CheckSummary{
+			TotalFindings: 3,
+			OKCount:       3,
+		},
+		Reliability: reporter.ScanReliability{ConsumerGroupsComplete: true},
+	}
+
+	if err := classifyCheckResult(result); err != nil {
+		t.Fatalf("classifyCheckResult clean+no-findings returned %v, want nil", err)
 	}
 }
