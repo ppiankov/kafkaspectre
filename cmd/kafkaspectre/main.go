@@ -731,6 +731,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 	unusedTopics := make([]*reporter.UnusedTopic, 0)
 	activeTopics := make([]*reporter.ActiveTopic, 0)
 	staleTopics := make([]*reporter.StaleTopic, 0)
+	configRisks := make([]reporter.ConfigRisk, 0)
 
 	internalTopics := 0
 	managedHeldOut := 0
@@ -774,6 +775,12 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 				managedHeldOut++
 			}
 			continue
+		}
+
+		// WO-49: assess config risk for every analyzed topic.
+		brokerCount := len(metadata.Brokers)
+		for _, cr := range reporter.AssessConfigRisk(topic, brokerCount) {
+			configRisks = append(configRisks, cr)
 		}
 
 		totalTopics++
@@ -869,6 +876,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		LowRiskCount:                 lowRisk,
 		ManagedTopicsHeldOut:         managedHeldOut,
 		StaleTopics:                  staleCount,
+		ConfigRisks:                  len(configRisks),
 		RecommendedCleanup:           recommendedCleanup(unusedTopics, 10, consumerDataComplete),
 		ClusterHealthScore:           clusterHealthScore(unusedPercent),
 		PotentialSavingsInfo:         fmt.Sprintf("%d unused topics representing %d partitions (%.1f%% of total partitions)", unusedCount, unusedPartitions, unusedPartitionsPercent),
@@ -879,6 +887,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		UnusedTopics:  unusedTopics,
 		ManagedTopics: managedTopics,
 		StaleTopics:   staleTopics,
+		ConfigRisks:   configRisks,
 		ActiveTopics:  activeTopics,
 		Metadata:      metadata,
 		TotalTopics:   totalTopics,

@@ -71,7 +71,8 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		// Round 2: the hold-out used to be invisible — topics and their
 		// partitions vanished from every total with nothing naming them.
 		writef("  Service-managed (held out): %d\n", result.Summary.ManagedTopicsHeldOut)
-		writef("  Stale (high lag):          %d\n\n", result.Summary.StaleTopics)
+		writef("  Stale (high lag):          %d\n", result.Summary.StaleTopics)
+		writef("  Config risks:              %d\n\n", result.Summary.ConfigRisks)
 
 		// Partition statistics
 		writef("Partitions:\n")
@@ -169,6 +170,20 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 			writef("  Total Lag: %d messages\n", stale.TotalLag)
 			writef("  Consumer Groups (%d): %s\n", len(stale.ConsumerGroups), strings.Join(stale.ConsumerGroups, ", "))
 			writef("  Recommendation: %s\n\n", stale.Recommendation)
+		}
+	}
+
+	// Config Risk Section
+	//
+	// WO-49: topics with risky configurations.
+	if len(result.ConfigRisks) > 0 {
+		writef("Config Risks\n")
+		writef("============\n\n")
+
+		for _, cr := range result.ConfigRisks {
+			writef("[%s] %s: %s\n", strings.ToUpper(cr.Severity), cr.Topic, cr.RiskType)
+			writef("  Current:       %s\n", cr.Current)
+			writef("  Recommendation: %s\n\n", cr.Recommendation)
 		}
 	}
 

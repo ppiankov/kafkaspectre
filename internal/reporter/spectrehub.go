@@ -105,6 +105,7 @@ func (r *SpectreHubReporter) GenerateAudit(_ context.Context, result *AuditResul
 				"replication_factor": topic.ReplicationFactor,
 				"retention":          topic.RetentionHuman,
 				"recommendation":     topic.Recommendation,
+				"managed_by":         topic.ManagedBy,
 			},
 		})
 		countSeverity(&envelope.Summary, severity)
