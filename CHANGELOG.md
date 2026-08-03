@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- FetchOffsets calls now run concurrently (16 workers) instead of sequentially,
+  making the tool usable on clusters with 200+ consumer groups without a manual
+  timeout override. Default timeout raised from 10s to 60s.
+
+### Fixed
+
+- A degraded scan (incomplete consumer-group read) now exits code 4 instead of
+  6 (findings) or 0 (success), so CI can distinguish unverified from actionable.
+
 ## [0.2.2] - 2026-08-02
 
 ### Fixed

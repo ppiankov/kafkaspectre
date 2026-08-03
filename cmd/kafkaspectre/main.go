@@ -26,7 +26,10 @@ var (
 	BuildDate = "unknown"
 )
 
-const defaultQueryTimeout = 10 * time.Second
+// WO-45: 10s was too short for production clusters with 200+ consumer groups.
+// The parallelized FetchOffsets pool (16 workers) brings a 215-group cluster to
+// ~15s, but the connection Ping and metadata calls need headroom too.
+const defaultQueryTimeout = 60 * time.Second
 
 // Exit codes for structured error reporting.
 const (
@@ -34,8 +37,10 @@ const (
 	ExitInternal   = 1 // internal error
 	ExitInvalidArg = 2 // invalid arguments
 	ExitNotFound   = 3 // not found (repo path, cluster unreachable)
-	ExitNetwork    = 5 // network error (Kafka connection failures)
-	ExitFindings   = 6 // findings detected (unused topics, check mismatches)
+	// WO-46: exit code constants with degraded scan code
+	ExitDegraded = 4 // scan completed but consumer-group data is incomplete
+	ExitNetwork  = 5 // network error (Kafka connection failures)
+	ExitFindings = 6 // findings detected (unused topics, check mismatches)
 )
 
 // FindingsError indicates the command succeeded but findings were detected.
@@ -47,9 +52,31 @@ func (e *FindingsError) Error() string {
 	return fmt.Sprintf("%d findings detected", e.Count)
 }
 
+// DegradedScanError indicates the scan completed but the consumer-group picture
+// is incomplete, so unused-topic findings are unverified.
+//
+// WO-46: a degraded scan must not be reported as success (0) or as actionable
+// findings (6). Exit code 4 takes precedence over both.
+type DegradedScanError struct {
+	FindingsCount int
+}
+
+// WO-46: DegradedScanError message format
+func (e *DegradedScanError) Error() string {
+	return fmt.Sprintf("scan incomplete; %d unverified findings", e.FindingsCount)
+}
+
 func classifyError(err error) int {
 	if err == nil {
 		return ExitSuccess
+	}
+
+	// WO-46: degraded takes precedence over findings — a scan that could not
+	// read consumer groups is not actionable regardless of how many topics it
+	// nominally found.
+	var de *DegradedScanError
+	if errors.As(err, &de) {
+		return ExitDegraded
 	}
 
 	var fe *FindingsError
@@ -91,10 +118,15 @@ func main() {
 
 	if err := newRootCmd().Execute(); err != nil {
 		exitCode := classifyError(err)
+		// WO-46: classify error for exit code selection
 		var fe *FindingsError
-		if errors.As(err, &fe) {
+		var de *DegradedScanError
+		switch {
+		case errors.As(err, &de):
+			slog.Warn("scan incomplete — findings are unverified", "findings_count", de.FindingsCount, "exit_code", exitCode)
+		case errors.As(err, &fe):
 			slog.Info("findings detected", "count", fe.Count)
-		} else {
+		default:
 			slog.Error("command failed", "error", err, "hint", "use 'kafkaspectre --help' for usage information")
 		}
 		os.Exit(exitCode)
@@ -468,6 +500,22 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 		"duration", time.Since(start),
 	)
 
+	// WO-46: the exit-code logic is extracted into classifyAuditResult so it is
+	// testable without a live broker. See degraded_exit_test.go.
+	return classifyAuditResult(result)
+}
+
+// classifyAuditResult decides the error to return based on scan reliability and
+// findings. WO-46: a degraded scan (incomplete consumer-group read) takes
+// precedence over both success and findings — exit 4 tells CI to re-run rather
+// than act on unverified data.
+// WO-46: classify audit result by reliability and findings
+// WO-46: classify audit result by reliability and findings
+func classifyAuditResult(result *reporter.AuditResult) error {
+	if !result.Reliability.ConsumerGroupsComplete {
+		return &DegradedScanError{FindingsCount: result.UnusedCount}
+	}
+
 	if result.UnusedCount > 0 {
 		return &FindingsError{Count: result.UnusedCount}
 	}
@@ -606,7 +654,19 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 		"duration", time.Since(start),
 	)
 
+	return classifyCheckResult(result)
+}
+
+// classifyCheckResult is the check-path analogue of classifyAuditResult.
+// WO-46: degraded takes precedence over findings on the check path too.
+// WO-46: classify check result by reliability and findings
+func classifyCheckResult(result *reporter.CheckResult) error {
 	findingsCount := result.Summary.TotalFindings - result.Summary.OKCount
+
+	if !result.Reliability.ConsumerGroupsComplete {
+		return &DegradedScanError{FindingsCount: findingsCount}
+	}
+
 	if findingsCount > 0 {
 		return &FindingsError{Count: findingsCount}
 	}

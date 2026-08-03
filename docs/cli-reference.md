@@ -92,6 +92,7 @@ kafkaspectre audit
 | `1` | Internal error |
 | `2` | Invalid arguments |
 | `3` | Not found (repo path, cluster unreachable) |
+| `4` | Scan incomplete — consumer-group data could not be fully read; findings are unverified |
 | `5` | Network error (Kafka connection failed) |
 | `6` | Findings detected (unused topics or check mismatches) |
 
@@ -111,7 +112,7 @@ kafkaspectre audit
 **Safety:**
 - Read-only cluster operations — never creates, deletes, or modifies topics
 - No auto-deletion of topics — reports and recommends only
-- Bounded execution time with `--timeout` (default 10s)
+- Bounded execution time with `--timeout` (default 60s)
 - No persistent state beyond generated reports
 
 **Data:**
@@ -131,13 +132,13 @@ kafkaspectre audit
   Streams backing topics cannot be recognised automatically
 - **No historical trend analysis** — single point-in-time audit (use SpectreHub for trends)
 - **Pattern-based code scanning** — may miss dynamic topic name construction
-- **Network timeout** — default 10s may be too short for large clusters (use `--timeout`)
+- **Network timeout** — the connection Ping fails within 10s; the default 60s metadata timeout covers clusters with 200+ consumer groups
 - **No CRDs or operators** — imperative CLI workflow
 
 
 ## Project Status
 
-**Status: Stable** · **v0.2.1** · Active development
+**Status: Stable** · **v0.2.2** · Active development
 
 | Milestone | Status |
 |-----------|--------|
