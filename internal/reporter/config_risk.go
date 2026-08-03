@@ -66,6 +66,7 @@ func AssessConfigRisk(topic *kafka.TopicInfo, brokerCount int) []ConfigRisk {
 	return risks
 }
 
+// WO-49: int-to-string helper for config risk messages
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

@@ -218,6 +218,7 @@ func buildAuditSARIFRun(result *AuditResult) sarifRun {
 				"cleanup_priority":   topic.CleanupPriority,
 			},
 		}
+		// WO-50: managed_by propagation to SARIF
 		if topic.ManagedBy != "" {
 			entry.Properties["managed_by"] = topic.ManagedBy
 		}
