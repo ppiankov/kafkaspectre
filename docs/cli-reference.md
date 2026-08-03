@@ -139,7 +139,7 @@ kafkaspectre audit
 
 ## Project Status
 
-**Status: Stable** · **v0.2.2** · Active development
+**Status: Stable** · **v0.2.4** · Active development
 
 | Milestone | Status |
 |-----------|--------|
