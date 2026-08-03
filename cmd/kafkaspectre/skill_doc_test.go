@@ -138,6 +138,7 @@ func TestSkillDocExitCodesMatchConstants(t *testing.T) {
 		{ExitInternal, "internal error"},
 		{ExitInvalidArg, "invalid arguments"},
 		{ExitNotFound, "not found"},
+		{ExitDegraded, "scan incomplete"},
 		{ExitNetwork, "network error"},
 		{ExitFindings, "findings detected"},
 	} {

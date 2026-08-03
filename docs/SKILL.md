@@ -111,6 +111,7 @@ members.
 - 1: internal error
 - 2: invalid arguments
 - 3: not found (repo path missing, cluster unreachable)
+- 4: scan incomplete — consumer-group data could not be fully read; findings are unverified
 - 5: network error (Kafka connection failure)
 - 6: findings detected
 
