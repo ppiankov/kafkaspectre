@@ -138,6 +138,7 @@ func TestDefaultTimeoutValue(t *testing.T) {
 }
 
 // WO-52/round-2: classifyCheckResult clean-with-findings path was untested.
+// WO-46: check path clean-with-findings classification
 func TestClassifyCheckResultCleanWithFindings(t *testing.T) {
 	result := &reporter.CheckResult{
 		Summary: &reporter.CheckSummary{

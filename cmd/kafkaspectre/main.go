@@ -120,6 +120,7 @@ func main() {
 		exitCode := classifyError(err)
 		var fe *FindingsError
 		var de *DegradedScanError
+		// WO-46: classify error for exit code selection
 		switch {
 		case errors.As(err, &de):
 			slog.Warn("scan incomplete — findings are unverified", "findings_count", de.FindingsCount, "exit_code", exitCode)
