@@ -158,6 +158,7 @@ func TestClassifyCheckResultCleanWithFindings(t *testing.T) {
 	}
 }
 
+// WO-46: check path clean-no-findings classification
 func TestClassifyCheckResultCleanNoFindings(t *testing.T) {
 	result := &reporter.CheckResult{
 		Summary: &reporter.CheckSummary{

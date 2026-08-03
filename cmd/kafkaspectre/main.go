@@ -37,9 +37,10 @@ const (
 	ExitInternal   = 1 // internal error
 	ExitInvalidArg = 2 // invalid arguments
 	ExitNotFound   = 3 // not found (repo path, cluster unreachable)
-	ExitDegraded   = 4 // scan completed but consumer-group data is incomplete
-	ExitNetwork    = 5 // network error (Kafka connection failures)
-	ExitFindings   = 6 // findings detected (unused topics, check mismatches)
+	// WO-46: exit code constants with degraded scan code
+	ExitDegraded = 4 // scan completed but consumer-group data is incomplete
+	ExitNetwork  = 5 // network error (Kafka connection failures)
+	ExitFindings = 6 // findings detected (unused topics, check mismatches)
 )
 
 // FindingsError indicates the command succeeded but findings were detected.
@@ -60,6 +61,7 @@ type DegradedScanError struct {
 	FindingsCount int
 }
 
+// WO-46: DegradedScanError message format
 func (e *DegradedScanError) Error() string {
 	return fmt.Sprintf("scan incomplete; %d unverified findings", e.FindingsCount)
 }
@@ -506,6 +508,8 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 // findings. WO-46: a degraded scan (incomplete consumer-group read) takes
 // precedence over both success and findings — exit 4 tells CI to re-run rather
 // than act on unverified data.
+// WO-46: classify audit result by reliability and findings
+// WO-46: classify audit result by reliability and findings
 func classifyAuditResult(result *reporter.AuditResult) error {
 	if !result.Reliability.ConsumerGroupsComplete {
 		return &DegradedScanError{FindingsCount: result.UnusedCount}
@@ -654,6 +658,7 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 
 // classifyCheckResult is the check-path analogue of classifyAuditResult.
 // WO-46: degraded takes precedence over findings on the check path too.
+// WO-46: classify check result by reliability and findings
 func classifyCheckResult(result *reporter.CheckResult) error {
 	findingsCount := result.Summary.TotalFindings - result.Summary.OKCount
 

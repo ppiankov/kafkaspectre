@@ -270,6 +270,7 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 // fetchOffsetsWorkers caps concurrent FetchOffsets calls. WO-45: the sequential
 // loop timed out on clusters with 200+ groups; 16 workers bring a 215-group
 // cluster from ~3 minutes to ~15 seconds.
+// WO-45: concurrent offset fetching worker pool
 const fetchOffsetsWorkers = 16
 
 // fetchOffsetsConcurrently fetches committed offsets for every group using a
@@ -282,8 +283,10 @@ const fetchOffsetsWorkers = 16
 // offsetFetcher fetches the set of topics a group has committed offsets for.
 // WO-52: extracted as a function type so the concurrent path is testable
 // without a live broker.
+// WO-52: testable seam for concurrent offset fetching
 type offsetFetcher func(ctx context.Context, groupID string) (map[string]struct{}, error)
 
+// WO-45: concurrent offsets fetch via worker pool
 func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []string, metadata *ClusterMetadata) {
 	fetcher := func(ctx context.Context, groupID string) (map[string]struct{}, error) {
 		offsets, err := i.admin.FetchOffsets(ctx, groupID)
@@ -305,6 +308,7 @@ func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []str
 //
 // Each goroutine writes to its own pre-allocated results[idx] slot. After
 // wg.Wait(), a single-threaded pass aggregates results — no mutex needed.
+// WO-45: bounded concurrent offset fetching with testable seam
 func fetchOffsetsForGroups(ctx context.Context, groupIDs []string, metadata *ClusterMetadata, fetch offsetFetcher) {
 	type result struct {
 		groupID string
