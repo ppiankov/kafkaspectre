@@ -18,6 +18,10 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
 
+// WO-51: separate short timeout for the connection Ping. The metadata timeout
+// (60s default) is for bulk reads; a Ping must fail fast on an unreachable host.
+const pingTimeout = 10 * time.Second
+
 // Inspector provides methods to fetch metadata from a Kafka cluster
 type Inspector struct {
 	client *kgo.Client
@@ -63,12 +67,17 @@ func NewInspector(cfg Config) (*Inspector, error) {
 		return nil, fmt.Errorf("failed to create Kafka client: %w", err)
 	}
 
-	// Ping the cluster to verify connectivity (with retry for transient failures)
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.QueryTimeout)
-	defer cancel()
+	// Ping the cluster to verify connectivity (with retry for transient failures).
+	//
+	// WO-51: a Ping is a liveness check and must fail fast. The metadata timeout
+	// (60s default) is for bulk reads on large clusters, not for "is this host
+	// alive." Without a separate short timeout, an unreachable broker silently
+	// dropping SYN packets makes the operator wait 60s for a connection error.
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), pingTimeout)
+	defer pingCancel()
 
-	if err := withRetry(ctx, "ping broker", func() error {
-		return client.Ping(ctx)
+	if err := withRetry(pingCtx, "ping broker", func() error {
+		return client.Ping(pingCtx)
 	}); err != nil {
 		client.Close()
 		return nil, fmt.Errorf("failed to connect to Kafka cluster: %w", err)
@@ -267,9 +276,36 @@ const fetchOffsetsWorkers = 16
 // bounded worker pool.
 //
 // WO-45: replaces the sequential loop that timed out on large clusters. Each
-// worker writes to a pre-allocated result slot, so no mutex is needed for the
-// topic data — only for the shared ConsumerGroupReadErrors slice.
+// goroutine writes to its own pre-allocated results[idx] slot. After wg.Wait(),
+// a single-threaded pass aggregates results into the shared metadata — no mutex
+// is needed because all goroutines are done.
+// offsetFetcher fetches the set of topics a group has committed offsets for.
+// WO-52: extracted as a function type so the concurrent path is testable
+// without a live broker.
+type offsetFetcher func(ctx context.Context, groupID string) (map[string]struct{}, error)
+
 func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []string, metadata *ClusterMetadata) {
+	fetcher := func(ctx context.Context, groupID string) (map[string]struct{}, error) {
+		offsets, err := i.admin.FetchOffsets(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
+		topics := make(map[string]struct{}, len(offsets))
+		for topic := range offsets {
+			topics[topic] = struct{}{}
+		}
+		return topics, nil
+	}
+	fetchOffsetsForGroups(ctx, groupIDs, metadata, fetcher)
+}
+
+// fetchOffsetsForGroups fetches committed offsets for every group using a
+// bounded worker pool. WO-45: replaces the sequential loop. WO-52: takes a
+// fetcher function so the concurrent path is testable without a live broker.
+//
+// Each goroutine writes to its own pre-allocated results[idx] slot. After
+// wg.Wait(), a single-threaded pass aggregates results — no mutex needed.
+func fetchOffsetsForGroups(ctx context.Context, groupIDs []string, metadata *ClusterMetadata, fetch offsetFetcher) {
 	type result struct {
 		groupID string
 		topics  []string
@@ -291,18 +327,18 @@ func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []str
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			offsets, err := i.admin.FetchOffsets(ctx, groupID)
+			offsetTopics, err := fetch(ctx, groupID)
 			if err != nil {
 				results[idx] = result{groupID: groupID, err: err}
 				return
 			}
 
 			info := metadata.ConsumerGroups[groupID]
-			topicsSet := make(map[string]struct{}, len(info.Topics)+len(offsets))
+			topicsSet := make(map[string]struct{}, len(info.Topics)+len(offsetTopics))
 			for _, topic := range info.Topics {
 				topicsSet[topic] = struct{}{}
 			}
-			for topic := range offsets {
+			for topic := range offsetTopics {
 				topicsSet[topic] = struct{}{}
 			}
 
@@ -318,14 +354,13 @@ func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []str
 
 	wg.Wait()
 
-	var errMu sync.Mutex
+	// WO-54: all result aggregation is single-threaded after wg.Wait(). No mutex
+	// is needed — the goroutines are done and each wrote to its own results slot.
 	for _, r := range results {
 		if r.err != nil {
 			slog.Warn("failed to fetch consumer group offsets", "error", r.err, "group_id", r.groupID)
-			errMu.Lock()
 			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
 				fmt.Sprintf("fetch offsets for group %q: %v", r.groupID, r.err))
-			errMu.Unlock()
 			continue
 		}
 		if info, exists := metadata.ConsumerGroups[r.groupID]; exists {

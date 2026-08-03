@@ -169,3 +169,32 @@ func TestSkillDocDescribesTheRightTool(t *testing.T) {
 		t.Error("SKILL.md does not mention unused-topic auditing, which is what this tool does")
 	}
 }
+
+// WO-53: cli-reference.md has the same exit-code table and must stay in sync.
+// The table format is | `4` | description | — different from SKILL.md's list.
+func TestCliReferenceExitCodesMatchConstants(t *testing.T) {
+	data, err := os.ReadFile(filepath.Clean("../../docs/cli-reference.md"))
+	if err != nil {
+		t.Fatalf("read cli-reference.md: %v", err)
+	}
+	doc := string(data)
+
+	for _, want := range []struct {
+		code int
+		hint string
+	}{
+		{ExitSuccess, "success"},
+		{ExitInternal, "internal"},
+		{ExitInvalidArg, "invalid"},
+		{ExitNotFound, "not found"},
+		{ExitDegraded, "scan incomplete"},
+		{ExitNetwork, "network"},
+		{ExitFindings, "findings"},
+	} {
+		// Match: | `4` | ... description containing hint ... |
+		pattern := regexp.MustCompile("(?i)`" + strconv.Itoa(want.code) + "`[^|]*\\|[^`]*" + want.hint)
+		if !pattern.MatchString(doc) {
+			t.Errorf("cli-reference.md does not document exit code %d with hint %q", want.code, want.hint)
+		}
+	}
+}

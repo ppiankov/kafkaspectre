@@ -497,9 +497,16 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 		"duration", time.Since(start),
 	)
 
-	// WO-46: a degraded scan takes precedence over both success and findings.
-	// The findings exist in the output but are unverified — exit 4 tells CI to
-	// re-run rather than act.
+	// WO-46: the exit-code logic is extracted into classifyAuditResult so it is
+	// testable without a live broker. See degraded_exit_test.go.
+	return classifyAuditResult(result)
+}
+
+// classifyAuditResult decides the error to return based on scan reliability and
+// findings. WO-46: a degraded scan (incomplete consumer-group read) takes
+// precedence over both success and findings — exit 4 tells CI to re-run rather
+// than act on unverified data.
+func classifyAuditResult(result *reporter.AuditResult) error {
 	if !result.Reliability.ConsumerGroupsComplete {
 		return &DegradedScanError{FindingsCount: result.UnusedCount}
 	}
@@ -642,9 +649,14 @@ func runCheck(cmd *cobra.Command, opts checkOptions) error {
 		"duration", time.Since(start),
 	)
 
+	return classifyCheckResult(result)
+}
+
+// classifyCheckResult is the check-path analogue of classifyAuditResult.
+// WO-46: degraded takes precedence over findings on the check path too.
+func classifyCheckResult(result *reporter.CheckResult) error {
 	findingsCount := result.Summary.TotalFindings - result.Summary.OKCount
 
-	// WO-46: degraded takes precedence over findings on the check path too.
 	if !result.Reliability.ConsumerGroupsComplete {
 		return &DegradedScanError{FindingsCount: findingsCount}
 	}

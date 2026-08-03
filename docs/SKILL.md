@@ -147,7 +147,7 @@ Explicit flags override config values.
 
 - Authentication failure: returns exit code 5 or 2 depending on cause. Distrust: all findings. Safe fallback: report scan failure, do not cache.
 - Network timeout: returns exit code 5. Distrust: completeness of findings. Safe fallback: report scan failure.
-- Partial consumer-group read: scan completes but `reliability.consumer_groups_complete` is `false` and delete recommendations are suppressed. Distrust: every unused-topic finding. Safe fallback: re-run once the cluster is fully readable; do not act on the findings.
+- Partial consumer-group read: returns exit code 4. `reliability.consumer_groups_complete` is `false` and delete recommendations are suppressed. Distrust: every unused-topic finding. Safe fallback: re-run once the cluster is fully readable; do not act on the findings.
 
 ## Parsing examples
 

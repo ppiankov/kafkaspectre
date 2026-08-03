@@ -12,6 +12,8 @@ that are actively consumed.
 Check this once, before anything else in this document:
 
 ```bash
+# A degraded scan exits code 4 — treat it as "retry", not "clean" or "findings":
+#   0 = clean, 4 = retry (incomplete), 6 = findings, anything else = error
 jq -e '.reliability.consumer_groups_complete' audit-report.json > /dev/null || {
   echo "Scan was incomplete — findings are unverified. Re-run before deleting." >&2
   exit 1
