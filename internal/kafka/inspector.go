@@ -263,28 +263,13 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 		// slowest single fetch, not the sum.
 		i.fetchOffsetsConcurrently(ctx, groupIDs, metadata)
 
-		// WO-47: fetch consumer group lag. kadm.Lag computes per-topic lag
-		// from committed offsets and end offsets. The result populates
-		// ConsumerGroupInfo.Lag so the audit can distinguish 'active' from
-		// 'stale' (consumers exist but are falling behind).
-		groupLags, lagErr := i.admin.Lag(ctx, groupIDs...)
-		if lagErr != nil {
-			slog.Warn("failed to fetch consumer group lag", "error", lagErr, "group_count", len(groupIDs))
-			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
-				fmt.Sprintf("fetch lag (%d groups): %v", len(groupIDs), lagErr))
-		}
-		for _, gl := range groupLags.Sorted() {
-			info, exists := metadata.ConsumerGroups[gl.Group]
-			if !exists {
-				continue
-			}
-			if gl.Lag == nil {
-				continue
-			}
-			for _, topicLag := range gl.Lag.TotalByTopic().Sorted() {
-				info.Lag[topicLag.Topic] = topicLag.Lag
-			}
-		}
+		// WO-56: compute lag efficiently using already-fetched data.
+		// The previous code called i.admin.Lag() which internally re-fetched
+		// DescribeGroups + FetchOffsets + ListEndOffsets — doubling broker
+		// load and causing 86 of 216 groups to time out on production MSK.
+		// We already have describedGroups and per-group offsets; the only
+		// new data needed is end offsets (one batch call).
+		i.computeLagEfficiently(ctx, describedGroups, groupIDs, metadata)
 	}
 
 	return metadata, nil
@@ -303,6 +288,65 @@ const fetchOffsetsWorkers = 16
 // goroutine writes to its own pre-allocated results[idx] slot. After wg.Wait(),
 // a single-threaded pass aggregates results into the shared metadata — no mutex
 // is needed because all goroutines are done.
+// WO-56: compute lag using already-fetched DescribeGroups and offsets plus
+// a single batch ListEndOffsets call, instead of kadm.Lag() which re-fetches
+// everything from scratch.
+//
+// WO-57: per-group lag errors are recorded so incomplete lag collection marks
+// the scan as degraded.
+func (i *Inspector) computeLagEfficiently(ctx context.Context, describedGroups kadm.DescribedGroups, groupIDs []string, metadata *ClusterMetadata) {
+	// Collect all topic names that any group consumes for the end-offsets fetch.
+	allTopicsSet := make(map[string]struct{})
+	for _, info := range metadata.ConsumerGroups {
+		for _, topic := range info.Topics {
+			allTopicsSet[topic] = struct{}{}
+		}
+	}
+	allTopics := make([]string, 0, len(allTopicsSet))
+	for topic := range allTopicsSet {
+		allTopics = append(allTopics, topic)
+	}
+
+	if len(allTopics) == 0 {
+		return
+	}
+
+	// One batch call for end offsets — this is the only new network request.
+	endOffsets, endOffsetsErr := i.admin.ListEndOffsets(ctx, allTopics...)
+	if endOffsetsErr != nil {
+		slog.Warn("failed to fetch end offsets for lag computation", "error", endOffsetsErr, "topic_count", len(allTopics))
+		metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+			fmt.Sprintf("fetch end offsets (%d topics): %v", len(allTopics), endOffsetsErr))
+		return
+	}
+
+	// For each described group, fetch its committed offsets and compute lag.
+	for _, groupID := range groupIDs {
+		described, exists := describedGroups[groupID]
+		if !exists || described.Err != nil {
+			continue
+		}
+		info, exists := metadata.ConsumerGroups[groupID]
+		if !exists {
+			continue
+		}
+
+		commits, err := i.admin.FetchOffsets(ctx, groupID)
+		if err != nil {
+			// WO-57: record per-group lag errors so the scan is marked incomplete.
+			slog.Warn("failed to fetch offsets for lag", "error", err, "group_id", groupID)
+			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+				fmt.Sprintf("fetch offsets for lag %q: %v", groupID, err))
+			continue
+		}
+
+		lag := kadm.CalculateGroupLag(described, commits, endOffsets)
+		for _, topicLag := range lag.TotalByTopic().Sorted() {
+			info.Lag[topicLag.Topic] = topicLag.Lag
+		}
+	}
+}
+
 // offsetFetcher fetches the set of topics a group has committed offsets for.
 // WO-52: extracted as a function type so the concurrent path is testable
 // without a live broker.
