@@ -11,13 +11,15 @@
 - Scans code repositories for topic references and compares against live cluster state
 - Risk-scores cleanup recommendations by partition count and replication factor
 - Flags topics whose only consumer groups are abandoned — no live members
+- Classifies stale topics — consumers exist but are falling behind on lag
+- Baseline mode — snapshot once, report only what changed on subsequent runs
 - Refuses to recommend deleting Schema Registry, Connect, and other managed topics
 - Outputs text, JSON, SARIF, and SpectreHub formats
 
 ## What it is NOT
 
 - Not a monitoring dashboard — point-in-time auditor
-- Not a consumer lag alerting system — it reads consumer group metadata, never lag or throughput
+- Not a consumer lag alerting system — it reports lag to classify stale topics, but does not alert on it
 - Not a topic management UI
 - Not a replacement for Kafka's built-in admin tools
 

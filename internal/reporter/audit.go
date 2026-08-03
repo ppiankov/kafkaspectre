@@ -132,6 +132,7 @@ type ActiveTopic struct {
 	ReplicationFactor int      `json:"replication_factor"`
 	ConsumerGroups    []string `json:"consumer_groups"`
 	ConsumerCount     int      `json:"consumer_count"`
+	TotalLag          int64    `json:"total_lag,omitempty"`
 }
 
 // Reporter interface extended with audit capabilities

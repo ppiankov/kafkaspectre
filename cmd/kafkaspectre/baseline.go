@@ -37,8 +37,9 @@ func snapshotFromResult(result *reporter.AuditResult) BaselineSnapshot {
 		Timestamp: result.Timestamp,
 	}
 
+	// WO-47: record lag on active topics too so LAG_INCREASED can fire.
 	for _, t := range result.ActiveTopics {
-		snap.Topics = append(snap.Topics, TopicSnapshot{Name: t.Name, Status: "active"})
+		snap.Topics = append(snap.Topics, TopicSnapshot{Name: t.Name, Status: "active", Lag: t.TotalLag})
 	}
 	for _, t := range result.StaleTopics {
 		snap.Topics = append(snap.Topics, TopicSnapshot{Name: t.Name, Status: "stale", Lag: t.TotalLag})
@@ -63,6 +64,9 @@ type Delta struct {
 }
 
 // WO-48: compute deltas between a baseline and the current result.
+//
+// Handles three cases: topics whose status changed, topics newly created
+// since the baseline (NEWLY_ACTIVE), and topics that were deleted (DELETED).
 func computeDeltas(baseline BaselineSnapshot, result *reporter.AuditResult) []Delta {
 	prev := make(map[string]TopicSnapshot, len(baseline.Topics))
 	for _, t := range baseline.Topics {
@@ -70,12 +74,23 @@ func computeDeltas(baseline BaselineSnapshot, result *reporter.AuditResult) []De
 	}
 
 	curr := snapshotFromResult(result)
+	currMap := make(map[string]bool, len(curr.Topics))
+
 	var deltas []Delta
 
 	for _, c := range curr.Topics {
+		currMap[c.Name] = true
 		p, existed := prev[c.Name]
 		if !existed {
-			continue // new topic, not a delta
+			// New topic since baseline.
+			deltas = append(deltas, Delta{
+				Topic:     c.Name,
+				From:      "absent",
+				To:        c.Status,
+				LagTo:     c.Lag,
+				DeltaType: "NEWLY_ACTIVE",
+			})
+			continue
 		}
 		if p.Status == c.Status && p.Lag == c.Lag {
 			continue // unchanged
@@ -102,6 +117,19 @@ func computeDeltas(baseline BaselineSnapshot, result *reporter.AuditResult) []De
 			DeltaType: dt,
 		})
 	}
+
+	// Topics in baseline but not in current were deleted.
+	for name, p := range prev {
+		if !currMap[name] {
+			deltas = append(deltas, Delta{
+				Topic:     name,
+				From:      p.Status,
+				To:        "absent",
+				DeltaType: "DELETED",
+			})
+		}
+	}
+
 	return deltas
 }
 
@@ -113,7 +141,7 @@ func newBaselineCmd() *cobra.Command {
 		Short: "Manage baseline snapshots for delta reporting",
 	}
 
-	cmd.AddCommand(&cobra.Command{
+	saveCmd := &cobra.Command{
 		Use:   "save [path]",
 		Short: "Save the current audit result as a baseline snapshot",
 		Args:  cobra.MaximumNArgs(1),
@@ -146,7 +174,11 @@ func newBaselineCmd() *cobra.Command {
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Saved baseline (%d topics) to %s\n", len(snap.Topics), abs)
 			return err
 		},
-	})
+	}
+	opts := auditOptions{}
+	registerConnectionFlags(saveCmd.Flags(), opts.connection())
+
+	cmd.AddCommand(saveCmd)
 
 	return cmd
 }

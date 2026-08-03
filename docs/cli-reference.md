@@ -124,7 +124,8 @@ kafkaspectre audit
 ## Known limitations
 
 - **Cluster access required** — cannot audit without a live Kafka connection
-- **Consumer group metadata only** — does not analyze actual message throughput or lag
+- **Consumer lag reported** — stale topics (high lag, active consumers) are classified separately from unused
+- **Baseline mode** — snapshot once, report only deltas on subsequent runs
 - **Scan reliability is reported, not assumed** — if consumer group data cannot
   be read, findings are marked UNVERIFIED, deletion advice is suppressed, and
   `reliability.consumer_groups_complete` is `false` in JSON output
@@ -150,5 +151,5 @@ kafkaspectre audit
 | Homebrew distribution | Complete |
 | SpectreHub compatibility | Complete |
 | SKILL.md for agents | Complete |
-| Baseline mode | Planned |
+| Baseline mode | Complete |
 

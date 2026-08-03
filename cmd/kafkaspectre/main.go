@@ -814,7 +814,9 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 					Risk:              risk,
 				})
 			} else {
-				activeTopics = append(activeTopics, reporter.BuildActiveTopic(topic, consumers))
+				at := reporter.BuildActiveTopic(topic, consumers)
+				at.TotalLag = lagByTopic[topic.Name]
+				activeTopics = append(activeTopics, at)
 				activePartitions += topic.Partitions
 			}
 		}
