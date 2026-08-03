@@ -90,7 +90,7 @@ func TestIncludeManagedSurfacesTopicsWithDoNotDeleteAdvice(t *testing.T) {
 		ConsumerGroups: map[string]*kafka.ConsumerGroupInfo{},
 	}
 
-	result := buildAuditResultWithOptions(metadata, false, nil, true)
+	result := buildAuditResultWithOptions(metadata, false, nil, true, defaultLagThreshold)
 
 	schemas := managedByName(result, "_schemas")
 	if schemas == nil {

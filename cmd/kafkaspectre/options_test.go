@@ -18,6 +18,7 @@ var connectionFlagNames = []string{
 	"exclude-internal",
 	"exclude-topics",
 	"include-managed",
+	"lag-threshold",
 	"output",
 	"password",
 	"timeout",
@@ -44,11 +45,14 @@ func TestAuditAndCheckShareConnectionFlags(t *testing.T) {
 	audit := flagNames(newAuditCmd().Flags())
 	check := flagNames(newCheckCmd().Flags())
 
-	if !reflect.DeepEqual(audit, connectionFlagNames) {
-		t.Errorf("audit flags = %v, want %v", audit, connectionFlagNames)
+	// WO-48: audit has --baseline (delta reporting) which check does not.
+	wantAudit := append(append([]string(nil), connectionFlagNames...), "baseline")
+	sort.Strings(wantAudit)
+	if !reflect.DeepEqual(audit, wantAudit) {
+		t.Errorf("audit flags = %v, want %v", audit, wantAudit)
 	}
 
-	// check has everything audit has, plus --repo.
+	// check has everything audit's connection flags have, plus --repo.
 	wantCheck := append(append([]string(nil), connectionFlagNames...), "repo")
 	sort.Strings(wantCheck)
 	if !reflect.DeepEqual(check, wantCheck) {

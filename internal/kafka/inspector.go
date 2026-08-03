@@ -262,6 +262,29 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 		// scan. A bounded worker pool makes the total time scale with the
 		// slowest single fetch, not the sum.
 		i.fetchOffsetsConcurrently(ctx, groupIDs, metadata)
+
+		// WO-47: fetch consumer group lag. kadm.Lag computes per-topic lag
+		// from committed offsets and end offsets. The result populates
+		// ConsumerGroupInfo.Lag so the audit can distinguish 'active' from
+		// 'stale' (consumers exist but are falling behind).
+		groupLags, lagErr := i.admin.Lag(ctx, groupIDs...)
+		if lagErr != nil {
+			slog.Warn("failed to fetch consumer group lag", "error", lagErr, "group_count", len(groupIDs))
+			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
+				fmt.Sprintf("fetch lag (%d groups): %v", len(groupIDs), lagErr))
+		}
+		for _, gl := range groupLags.Sorted() {
+			info, exists := metadata.ConsumerGroups[gl.Group]
+			if !exists {
+				continue
+			}
+			if gl.Lag == nil {
+				continue
+			}
+			for _, topicLag := range gl.Lag.TotalByTopic().Sorted() {
+				info.Lag[topicLag.Topic] = topicLag.Lag
+			}
+		}
 	}
 
 	return metadata, nil

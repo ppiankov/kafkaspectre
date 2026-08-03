@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/ppiankov/kafkaspectre/internal/kafka"
 )
@@ -69,7 +70,8 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		writef("  Internal (excluded):        %d\n", result.Summary.InternalTopics)
 		// Round 2: the hold-out used to be invisible — topics and their
 		// partitions vanished from every total with nothing naming them.
-		writef("  Service-managed (held out): %d\n\n", result.Summary.ManagedTopicsHeldOut)
+		writef("  Service-managed (held out): %d\n", result.Summary.ManagedTopicsHeldOut)
+		writef("  Stale (high lag):          %d\n\n", result.Summary.StaleTopics)
 
 		// Partition statistics
 		writef("Partitions:\n")
@@ -150,6 +152,23 @@ func (r *AuditTextReporter) GenerateAudit(ctx context.Context, result *AuditResu
 			writef("  Owner: %s\n", managed.ManagedBy)
 			writef("  Partitions: %d, Replication: %d\n", managed.Partitions, managed.ReplicationFactor)
 			writef("  %s\n\n", managed.Recommendation)
+		}
+	}
+
+	// Stale Topics Section
+	//
+	// WO-47: topics with active consumers but high lag. These are NOT unused —
+	// they are being consumed but the consumer is falling behind.
+	if len(result.StaleTopics) > 0 {
+		writef("Stale Topics (High Lag, Active Consumers)\n")
+		writef("==========================================\n\n")
+
+		for _, stale := range result.StaleTopics {
+			writef("[STALE] %s\n", stale.Name)
+			writef("  Partitions: %d, Replication: %d\n", stale.Partitions, stale.ReplicationFactor)
+			writef("  Total Lag: %d messages\n", stale.TotalLag)
+			writef("  Consumer Groups (%d): %s\n", len(stale.ConsumerGroups), strings.Join(stale.ConsumerGroups, ", "))
+			writef("  Recommendation: %s\n\n", stale.Recommendation)
 		}
 	}
 

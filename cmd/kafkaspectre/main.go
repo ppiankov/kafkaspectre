@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -30,6 +31,9 @@ var (
 // The parallelized FetchOffsets pool (16 workers) brings a 215-group cluster to
 // ~15s, but the connection Ping and metadata calls need headroom too.
 const defaultQueryTimeout = 60 * time.Second
+
+// WO-47: topics with consumers whose total lag exceeds this are classified stale.
+const defaultLagThreshold = 10000
 
 // Exit codes for structured error reporting.
 const (
@@ -147,6 +151,8 @@ type auditOptions struct {
 	excludeTopics   []string
 	// WO-26: includeManaged surfaces service-managed backing topics in the report.
 	includeManaged bool
+	lagThreshold   int64
+	baselinePath   string
 	timeout        time.Duration
 }
 
@@ -165,6 +171,7 @@ type checkOptions struct {
 	excludeInternal bool
 	excludeTopics   []string
 	includeManaged  bool
+	lagThreshold    int64
 	timeout         time.Duration
 }
 
@@ -199,6 +206,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newAuditCmd())
 	cmd.AddCommand(newCheckCmd())
 	cmd.AddCommand(newInitCmd())
+	cmd.AddCommand(newBaselineCmd())
 	cmd.AddCommand(newVersionCmd())
 
 	return cmd
@@ -302,6 +310,7 @@ func newAuditCmd() *cobra.Command {
 	}
 
 	registerConnectionFlags(cmd.Flags(), opts.connection())
+	cmd.Flags().StringVar(&opts.baselinePath, "baseline", "", "Path to a baseline snapshot; report only deltas")
 
 	return cmd
 }
@@ -435,10 +444,31 @@ func runAudit(cmd *cobra.Command, opts auditOptions) error {
 		return err
 	}
 
-	result := buildAuditResultWithOptions(metadata, opts.excludeInternal, excludePatterns, opts.includeManaged)
+	result := buildAuditResultWithOptions(metadata, opts.excludeInternal, excludePatterns, opts.includeManaged, opts.lagThreshold)
 	result.Tool = "kafkaspectre"
 	result.Version = Version
 	result.Timestamp = time.Now().UTC().Format(time.RFC3339)
+
+	// WO-48: if a baseline is provided, compute deltas and replace the
+	// output with just the changes since the last snapshot.
+	if opts.baselinePath != "" {
+		baseline, err := loadBaseline(opts.baselinePath)
+		if err != nil {
+			return err
+		}
+		deltas := computeDeltas(baseline, result)
+		if len(deltas) == 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No changes since baseline (%s).\n", baseline.Timestamp)
+			return nil
+		}
+		deltaJSON, err := json.MarshalIndent(deltas, "", "  ")
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", deltaJSON)
+		slog.Info("baseline deltas computed", "delta_count", len(deltas), "baseline_timestamp", baseline.Timestamp)
+		return nil
+	}
 
 	if output == "text" {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "KafkaSpectre Audit\n")
@@ -675,8 +705,9 @@ func classifyCheckResult(result *reporter.CheckResult) error {
 }
 
 // WO-26: classify topics into unused/active/managed
+// WO-26: classify topics into unused/active/managed
 func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string) *reporter.AuditResult {
-	return buildAuditResultWithOptions(metadata, excludeInternal, excludeTopics, false)
+	return buildAuditResultWithOptions(metadata, excludeInternal, excludeTopics, false, defaultLagThreshold)
 }
 
 // buildAuditResultWithOptions classifies topics into unused and active sets.
@@ -685,12 +716,21 @@ func buildAuditResult(metadata *kafka.ClusterMetadata, excludeInternal bool, exc
 // is not evidence that a topic is unused, so no delete advice is emitted.
 // WO-26: topics owned by a managed service are never deletion candidates.
 // WO-26: managed-topic bucketing and counting
-func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.AuditResult {
+func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool, lagThreshold int64) *reporter.AuditResult {
 	consumersByTopic, abandonedByTopic := buildConsumersByTopicWithState(metadata)
 	consumerDataComplete := metadata.ConsumerGroupsComplete()
 
+	// WO-47: compute per-topic lag from consumer group lag data.
+	lagByTopic := make(map[string]int64)
+	for _, group := range metadata.ConsumerGroups {
+		for topic, lag := range group.Lag {
+			lagByTopic[topic] += lag
+		}
+	}
+
 	unusedTopics := make([]*reporter.UnusedTopic, 0)
 	activeTopics := make([]*reporter.ActiveTopic, 0)
+	staleTopics := make([]*reporter.StaleTopic, 0)
 
 	internalTopics := 0
 	managedHeldOut := 0
@@ -757,8 +797,26 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 				lowRisk++
 			}
 		} else {
-			activeTopics = append(activeTopics, reporter.BuildActiveTopic(topic, consumers))
-			activePartitions += topic.Partitions
+			topicLag := lagByTopic[topic.Name]
+			if lagThreshold > 0 && topicLag >= lagThreshold {
+				// WO-47: consumers exist but are falling behind.
+				risk, _ := classifyRisk(topic)
+				if risk == "low" {
+					risk = "medium"
+				}
+				staleTopics = append(staleTopics, &reporter.StaleTopic{
+					Name:              topic.Name,
+					Partitions:        topic.Partitions,
+					ReplicationFactor: topic.ReplicationFactor,
+					TotalLag:          topicLag,
+					ConsumerGroups:    consumers,
+					Recommendation:    "Investigate consumer health — high lag detected",
+					Risk:              risk,
+				})
+			} else {
+				activeTopics = append(activeTopics, reporter.BuildActiveTopic(topic, consumers))
+				activePartitions += topic.Partitions
+			}
 		}
 	}
 
@@ -770,9 +828,13 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 	sort.Slice(activeTopics, func(i, j int) bool {
 		return activeTopics[i].Name < activeTopics[j].Name
 	})
+	sort.Slice(staleTopics, func(i, j int) bool {
+		return staleTopics[i].TotalLag > staleTopics[j].TotalLag
+	})
 
 	unusedCount := len(unusedTopics)
 	activeCount := len(activeTopics)
+	staleCount := len(staleTopics)
 	unusedPercent := percent(unusedCount, totalTopics)
 	unusedPartitionsPercent := percent(unusedPartitions, totalPartitions)
 
@@ -804,6 +866,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		MediumRiskCount:              mediumRisk,
 		LowRiskCount:                 lowRisk,
 		ManagedTopicsHeldOut:         managedHeldOut,
+		StaleTopics:                  staleCount,
 		RecommendedCleanup:           recommendedCleanup(unusedTopics, 10, consumerDataComplete),
 		ClusterHealthScore:           clusterHealthScore(unusedPercent),
 		PotentialSavingsInfo:         fmt.Sprintf("%d unused topics representing %d partitions (%.1f%% of total partitions)", unusedCount, unusedPartitions, unusedPartitionsPercent),
@@ -813,6 +876,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 		Summary:       summary,
 		UnusedTopics:  unusedTopics,
 		ManagedTopics: managedTopics,
+		StaleTopics:   staleTopics,
 		ActiveTopics:  activeTopics,
 		Metadata:      metadata,
 		TotalTopics:   totalTopics,
@@ -950,6 +1014,14 @@ func buildCheckResult(scanResult *scanner.Result, metadata *kafka.ClusterMetadat
 func buildCheckResultWithOptions(scanResult *scanner.Result, metadata *kafka.ClusterMetadata, excludeInternal bool, excludeTopics []string, includeManaged bool) *reporter.CheckResult {
 	consumersByTopic := buildConsumersByTopic(metadata)
 	consumerDataComplete := metadata.ConsumerGroupsComplete()
+
+	// WO-47: compute per-topic lag from consumer group lag data.
+	lagByTopic := make(map[string]int64)
+	for _, group := range metadata.ConsumerGroups {
+		for topic, lag := range group.Lag {
+			lagByTopic[topic] += lag
+		}
+	}
 
 	clusterTopics := make(map[string]*kafka.TopicInfo, len(metadata.Topics))
 	for name, topic := range metadata.Topics {

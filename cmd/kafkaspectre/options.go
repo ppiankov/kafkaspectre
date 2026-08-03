@@ -37,6 +37,7 @@ type connectionOptions struct {
 	excludeInternal *bool
 	excludeTopics   *[]string
 	includeManaged  *bool
+	lagThreshold    *int64
 	timeout         *time.Duration
 }
 
@@ -55,6 +56,7 @@ func (o *auditOptions) connection() connectionOptions {
 		excludeInternal: &o.excludeInternal,
 		excludeTopics:   &o.excludeTopics,
 		includeManaged:  &o.includeManaged,
+		lagThreshold:    &o.lagThreshold,
 		timeout:         &o.timeout,
 	}
 }
@@ -74,6 +76,7 @@ func (o *checkOptions) connection() connectionOptions {
 		excludeInternal: &o.excludeInternal,
 		excludeTopics:   &o.excludeTopics,
 		includeManaged:  &o.includeManaged,
+		lagThreshold:    &o.lagThreshold,
 		timeout:         &o.timeout,
 	}
 }
@@ -96,6 +99,7 @@ func registerConnectionFlags(flags *pflag.FlagSet, c connectionOptions) {
 	flags.StringSliceVar(c.excludeTopics, "exclude-topics", nil, "Exclude topics by name or glob pattern (repeatable)")
 	flags.BoolVar(c.includeManaged, "include-managed", false, "Include service-managed topics (Schema Registry, Connect) in analysis")
 	flags.DurationVar(c.timeout, "timeout", 0, "Kafka query timeout (for example: 10s, 1m)")
+	flags.Int64Var(c.lagThreshold, "lag-threshold", defaultLagThreshold, "Lag (messages) above which a topic with consumers is classified stale")
 }
 
 // applyConnectionConfigDefaults fills unset options from the config file.
