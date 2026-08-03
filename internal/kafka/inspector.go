@@ -261,15 +261,13 @@ func (i *Inspector) FetchMetadata(ctx context.Context) (*ClusterMetadata, error)
 		// the default 10s timeout, producing 136 read errors and a degraded
 		// scan. A bounded worker pool makes the total time scale with the
 		// slowest single fetch, not the sum.
-		i.fetchOffsetsConcurrently(ctx, groupIDs, metadata)
+		// WO-56: fetchOffsetsConcurrently also captures raw OffsetResponses
+		// so lag can be computed without a second round of per-group fetches.
+		groupOffsets := i.fetchOffsetsConcurrently(ctx, groupIDs, metadata)
 
-		// WO-56: compute lag efficiently using already-fetched data.
-		// The previous code called i.admin.Lag() which internally re-fetched
-		// DescribeGroups + FetchOffsets + ListEndOffsets — doubling broker
-		// load and causing 86 of 216 groups to time out on production MSK.
-		// We already have describedGroups and per-group offsets; the only
-		// new data needed is end offsets (one batch call).
-		i.computeLagEfficiently(ctx, describedGroups, groupIDs, metadata)
+		// WO-56: compute lag from already-fetched offsets + one batch
+		// ListEndOffsets call. No per-group re-fetching.
+		i.computeLagEfficiently(ctx, describedGroups, groupOffsets, metadata)
 	}
 
 	return metadata, nil
@@ -294,8 +292,15 @@ const fetchOffsetsWorkers = 16
 //
 // WO-57: per-group lag errors are recorded so incomplete lag collection marks
 // the scan as degraded.
-func (i *Inspector) computeLagEfficiently(ctx context.Context, describedGroups kadm.DescribedGroups, groupIDs []string, metadata *ClusterMetadata) {
-	// Collect all topic names that any group consumes for the end-offsets fetch.
+// WO-56: compute lag from already-fetched offsets + one batch ListEndOffsets.
+// No per-group re-fetching — eliminates the doubling of broker load that
+// kadm.Lag() caused.
+//
+// WO-57: per-group errors from DescribeGroups/FetchOffsets are already
+// recorded by the callers above. If a group is missing from groupOffsets
+// (because its FetchOffsets failed in the concurrent loop), it simply gets
+// no lag data — the failure was already recorded.
+func (i *Inspector) computeLagEfficiently(ctx context.Context, describedGroups kadm.DescribedGroups, groupOffsets map[string]kadm.OffsetResponses, metadata *ClusterMetadata) {
 	allTopicsSet := make(map[string]struct{})
 	for _, info := range metadata.ConsumerGroups {
 		for _, topic := range info.Topics {
@@ -311,7 +316,7 @@ func (i *Inspector) computeLagEfficiently(ctx context.Context, describedGroups k
 		return
 	}
 
-	// One batch call for end offsets — this is the only new network request.
+	// One batch call for end offsets — the only new network request.
 	endOffsets, endOffsetsErr := i.admin.ListEndOffsets(ctx, allTopics...)
 	if endOffsetsErr != nil {
 		slog.Warn("failed to fetch end offsets for lag computation", "error", endOffsetsErr, "topic_count", len(allTopics))
@@ -320,23 +325,14 @@ func (i *Inspector) computeLagEfficiently(ctx context.Context, describedGroups k
 		return
 	}
 
-	// For each described group, fetch its committed offsets and compute lag.
-	for _, groupID := range groupIDs {
+	// Compute lag per group using pre-fetched offsets — no network calls.
+	for groupID, commits := range groupOffsets {
 		described, exists := describedGroups[groupID]
 		if !exists || described.Err != nil {
 			continue
 		}
 		info, exists := metadata.ConsumerGroups[groupID]
 		if !exists {
-			continue
-		}
-
-		commits, err := i.admin.FetchOffsets(ctx, groupID)
-		if err != nil {
-			// WO-57: record per-group lag errors so the scan is marked incomplete.
-			slog.Warn("failed to fetch offsets for lag", "error", err, "group_id", groupID)
-			metadata.ConsumerGroupReadErrors = append(metadata.ConsumerGroupReadErrors,
-				fmt.Sprintf("fetch offsets for lag %q: %v", groupID, err))
 			continue
 		}
 
@@ -353,13 +349,22 @@ func (i *Inspector) computeLagEfficiently(ctx context.Context, describedGroups k
 // WO-52: testable seam for concurrent offset fetching
 type offsetFetcher func(ctx context.Context, groupID string) (map[string]struct{}, error)
 
-// WO-45: concurrent offsets fetch via worker pool
-func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []string, metadata *ClusterMetadata) {
+// WO-56: concurrent offsets fetch via worker pool. Also captures raw
+// OffsetResponses so lag can be computed without re-fetching.
+func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []string, metadata *ClusterMetadata) map[string]kadm.OffsetResponses {
+	groupOffsets := make(map[string]kadm.OffsetResponses)
+	offsetsMu := make(chan struct{}, 1) // serializes map writes, cheap
+
 	fetcher := func(ctx context.Context, groupID string) (map[string]struct{}, error) {
 		offsets, err := i.admin.FetchOffsets(ctx, groupID)
 		if err != nil {
 			return nil, err
 		}
+		// WO-56: store raw offsets for lag computation.
+		offsetsMu <- struct{}{}
+		groupOffsets[groupID] = offsets
+		<-offsetsMu
+
 		topics := make(map[string]struct{}, len(offsets))
 		for topic := range offsets {
 			topics[topic] = struct{}{}
@@ -367,6 +372,7 @@ func (i *Inspector) fetchOffsetsConcurrently(ctx context.Context, groupIDs []str
 		return topics, nil
 	}
 	fetchOffsetsForGroups(ctx, groupIDs, metadata, fetcher)
+	return groupOffsets
 }
 
 // fetchOffsetsForGroups fetches committed offsets for every group using a
