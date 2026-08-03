@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-08-03
+
+### Added
+
+- Config risk assessment — evaluates topic configs against deterministic
+  rules: RF=1 on multi-broker clusters, infinite retention,
+  min.insync.replicas=1 with RF>=3, compact with high partition count.
+  New `config_risks` output key in JSON and text.
+- `managed_by` field now propagates to SARIF and SpectreHub outputs.
+
+### Fixed
+
+- Lag computation now reuses already-fetched offsets instead of calling
+  `kadm.Lag()` which re-fetched everything, doubling broker load.
+- Per-group lag errors are recorded so incomplete lag collection marks the
+  scan as degraded rather than silently claiming completeness.
+
 ## [0.2.4] - 2026-08-03
 
 ### Added

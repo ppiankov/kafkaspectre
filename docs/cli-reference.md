@@ -126,7 +126,8 @@ kafkaspectre audit
 - **Cluster access required** — cannot audit without a live Kafka connection
 - **Consumer lag reported** — stale topics (high lag, active consumers) are classified separately from unused
 - **Baseline mode** — snapshot once, report only deltas on subsequent runs
-- **Scan reliability is reported, not assumed** — if consumer group data cannot
+- **Config risk signals** — under-replicated topics, infinite retention, and weak
+  durability settings are flagged in the `config_risks` output key — if consumer group data cannot
   be read, findings are marked UNVERIFIED, deletion advice is suppressed, and
   `reliability.consumer_groups_complete` is `false` in JSON output
 - **Managed-topic detection is name-based and best-effort** — renamed Connect or
@@ -139,7 +140,7 @@ kafkaspectre audit
 
 ## Project Status
 
-**Status: Stable** · **v0.2.4** · Active development
+**Status: Stable** · **v0.2.5** · Active development
 
 | Milestone | Status |
 |-----------|--------|
