@@ -13,6 +13,8 @@
 - Flags topics whose only consumer groups are abandoned — no live members
 - Classifies stale topics — consumers exist but are falling behind on lag
 - Baseline mode — snapshot once, report only what changed on subsequent runs
+- Config risk assessment — flags under-replicated, infinite-retention, and
+  weak-durability topics
 - Refuses to recommend deleting Schema Registry, Connect, and other managed topics
 - Outputs text, JSON, SARIF, and SpectreHub formats
 

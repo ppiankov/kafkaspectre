@@ -108,7 +108,8 @@ separately under `managed_topics` and counted by
 `summary.managed_topics_held_out`, because a backing topic having no consumer
 group is its steady state, not a finding. Entries in `unused_topics` carry
 `abandoned_consumer_groups` when the only groups referencing them hold no live
-members.
+members. `config_risks` lists topics with risky configurations (under-replicated,
+infinite retention, weak durability).
 
 **Exit codes:**
 - 0: scan complete, no findings
