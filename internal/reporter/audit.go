@@ -41,6 +41,10 @@ type AuditResult struct {
 	// WO-47: these are NOT unused — they are being consumed but falling behind.
 	StaleTopics []*StaleTopic
 
+	// ConfigRisks lists topics with risky configurations.
+	// WO-49: under-replicated, infinite retention, weak durability.
+	ConfigRisks []ConfigRisk
+
 	// Reliability records whether the underlying cluster reads were complete.
 	// WO-27: unused-topic findings are only actionable when they were.
 	Reliability ScanReliability
@@ -87,6 +91,9 @@ type AuditSummary struct {
 	// StaleTopics counts topics with active consumers but high lag.
 	// WO-47: these are NOT unused — they are being consumed but falling behind.
 	StaleTopics int `json:"stale_topics"`
+
+	// ConfigRisks counts topics with risky configurations. WO-49.
+	ConfigRisks int `json:"config_risks"`
 
 	// Stakeholder Metrics
 	PotentialSavingsInfo string `json:"potential_savings_info"`
