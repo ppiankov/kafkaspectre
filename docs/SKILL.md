@@ -44,6 +44,10 @@ Scans a repository for topic references and compares them against the cluster.
 
 Per-topic status values: `OK`, `MISSING_IN_CLUSTER`, `UNREFERENCED_IN_REPO`, `UNUSED`.
 
+### kafkaspectre baseline save
+
+Saves a snapshot of the current audit to a JSON file. Subsequent `audit --baseline <path>` runs report only what changed.
+
 ### kafkaspectre init
 
 Creates a default `.kafkaspectre.yaml` configuration file in the current directory. Exits 0 on success, 1 if the file already exists.
@@ -140,7 +144,7 @@ Explicit flags override config values.
 
 - Does not remediate or modify Kafka clusters — every operation is read-only
 - Does not store findings or manage a findings database
-- Does not compute consumer lag or message throughput — consumer group metadata only
+- Does not alert on consumer lag — reports lag to classify stale topics, but is not a monitoring system
 - Does not replace Kafka monitoring — point-in-time audit only
 
 ## Failure Modes

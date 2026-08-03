@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Consumer group lag computation via `kadm.Lag()`. Topics with consumers
+  but high lag are classified as stale (new `stale_topics` output key).
+- `--lag-threshold` flag (default 10000 messages) controls the stale boundary.
+- Baseline mode: `kafkaspectre baseline save [path]` captures a snapshot;
+  `--baseline path` on audit reports only deltas (NEWLY_UNUSED,
+  NEWLY_ACTIVE, NEWLY_STALE, LAG_INCREASED).
+
 ## [0.2.3] - 2026-08-03
 
 ### Changed

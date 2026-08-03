@@ -38,6 +38,9 @@ type AuditJSONOutput struct {
 	// _schemas invisible rather than safe.
 	ManagedTopics []*UnusedTopic `json:"managed_topics,omitempty"`
 
+	// StaleTopics are topics with consumers but high lag. WO-47.
+	StaleTopics []*StaleTopic `json:"stale_topics,omitempty"`
+
 	ClusterMetadata *ClusterMetadata `json:"cluster_metadata"`
 
 	// Reliability lets a downstream consumer tell a degraded scan from a clean
@@ -72,6 +75,7 @@ func (r *AuditJSONReporter) GenerateAudit(ctx context.Context, result *AuditResu
 		Summary:       result.Summary,
 		UnusedTopics:  result.UnusedTopics,
 		ManagedTopics: result.ManagedTopics,
+		StaleTopics:   result.StaleTopics,
 		Reliability:   result.Reliability,
 		ClusterMetadata: &ClusterMetadata{
 			Brokers:       convertBrokers(result.Metadata.Brokers),

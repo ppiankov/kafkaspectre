@@ -109,7 +109,7 @@ func TestIncludeManagedKeepsManagedTopicsOutOfCleanupList(t *testing.T) {
 		ConsumerGroups: map[string]*kafka.ConsumerGroupInfo{},
 	}
 
-	result := buildAuditResultWithOptions(metadata, false, nil, true)
+	result := buildAuditResultWithOptions(metadata, false, nil, true, defaultLagThreshold)
 	assertCleanupListConsistent(t, result)
 
 	if managedByName(result, "_schemas") == nil {
@@ -304,7 +304,7 @@ func TestUnusedTopicsNeverContainsAManagedTopic(t *testing.T) {
 				if degraded {
 					md.ConsumerGroupReadErrors = []string{"broker unreachable"}
 				}
-				result := buildAuditResultWithOptions(&md, excludeInternal, nil, includeManaged)
+				result := buildAuditResultWithOptions(&md, excludeInternal, nil, includeManaged, defaultLagThreshold)
 
 				for _, unused := range result.UnusedTopics {
 					if unused.ManagedBy != "" {
@@ -367,7 +367,7 @@ func TestAuditCountingConsistency(t *testing.T) {
 
 	for _, excludeInternal := range []bool{false, true} {
 		for _, includeManaged := range []bool{false, true} {
-			result := buildAuditResultWithOptions(mk(), excludeInternal, nil, includeManaged)
+			result := buildAuditResultWithOptions(mk(), excludeInternal, nil, includeManaged, defaultLagThreshold)
 
 			if got, want := result.TotalTopics, result.ActiveCount+result.UnusedCount; got != want {
 				t.Errorf("excludeInternal=%v includeManaged=%v: analyzed=%d != active+unused=%d",

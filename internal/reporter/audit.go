@@ -37,6 +37,10 @@ type AuditResult struct {
 	// DO NOT DELETE.
 	ManagedTopics []*UnusedTopic
 
+	// StaleTopics lists topics with active consumers but high lag.
+	// WO-47: these are NOT unused — they are being consumed but falling behind.
+	StaleTopics []*StaleTopic
+
 	// Reliability records whether the underlying cluster reads were complete.
 	// WO-27: unused-topic findings are only actionable when they were.
 	Reliability ScanReliability
@@ -79,6 +83,10 @@ type AuditSummary struct {
 	// analysis. Round 2: the hold-out was previously invisible — topics and
 	// their partitions vanished from every total with nothing naming them.
 	ManagedTopicsHeldOut int `json:"managed_topics_held_out"`
+
+	// StaleTopics counts topics with active consumers but high lag.
+	// WO-47: these are NOT unused — they are being consumed but falling behind.
+	StaleTopics int `json:"stale_topics"`
 
 	// Stakeholder Metrics
 	PotentialSavingsInfo string `json:"potential_savings_info"`
@@ -124,6 +132,7 @@ type ActiveTopic struct {
 	ReplicationFactor int      `json:"replication_factor"`
 	ConsumerGroups    []string `json:"consumer_groups"`
 	ConsumerCount     int      `json:"consumer_count"`
+	TotalLag          int64    `json:"total_lag,omitempty"`
 }
 
 // Reporter interface extended with audit capabilities
