@@ -779,9 +779,7 @@ func buildAuditResultWithOptions(metadata *kafka.ClusterMetadata, excludeInterna
 
 		// WO-49: assess config risk for every analyzed topic.
 		brokerCount := len(metadata.Brokers)
-		for _, cr := range reporter.AssessConfigRisk(topic, brokerCount) {
-			configRisks = append(configRisks, cr)
-		}
+		configRisks = append(configRisks, reporter.AssessConfigRisk(topic, brokerCount)...)
 
 		totalTopics++
 		totalPartitions += topic.Partitions
