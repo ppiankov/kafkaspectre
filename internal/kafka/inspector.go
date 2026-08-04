@@ -488,6 +488,7 @@ func buildSASL(cfg Config) (kgo.Opt, error) {
 		}.AsSha512Mechanism()
 		return kgo.SASL(mechanism), nil
 
+	// WO-58: AWS MSK IAM auth via SASL/OAUTHBEARER
 	case "AWS_MSK_IAM":
 		// WO-58: AWS MSK IAM auth via SASL/OAUTHBEARER. Credentials are
 		// resolved from the standard AWS SDK chain (env vars, profile,
