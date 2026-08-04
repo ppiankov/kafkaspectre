@@ -8,13 +8,31 @@ builds:
       - CGO_ENABLED=0
     goos:
       - linux
-      - darwin
       - windows
     goarch:
       - amd64
       - arm64
     ldflags:
       - -s -w -X main.Version={{.Version}} -X main.GitCommit={{.Commit}} -X main.BuildDate={{.Date}}
+
+  # WO-64: Sign Darwin binaries before archiving so Gatekeeper sees the signed
+  # Mach-O. Reuses the iamspectre quill mechanism (WO-82) with the same
+  # QUILL_SIGN_* and QUILL_NOTARY_* secrets.
+  - id: kafkaspectre-darwin
+    binary: kafkaspectre
+    main: ./cmd/kafkaspectre
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}} -X main.GitCommit={{.Commit}} -X main.BuildDate={{.Date}}
+    hooks:
+      post:
+        - quill sign-and-notarize "{{ .Path }}" --dry-run={{ .IsSnapshot }} --ad-hoc={{ .IsSnapshot }}
 
 archives:
   - id: default
@@ -34,36 +52,6 @@ release:
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
-
-# WO-64: macOS code signing and notarization. Gatekeeper blocks unsigned
-# binaries by default; this signs them with an Apple Developer ID and
-# submits for notarization. Requires AC_API_KEY env (app-specific password
-# for notarytool) and AC_APPLE_ID / AC_TEAM_ID secrets.
-signs:
-  - id: darwin
-    artifacts: all
-    ids:
-      - darwin_amd64
-      - darwin_arm64
-    cmd: cosign
-    signature: "${artifact}.sig"
-    certificate: "${certificate}"
-    args:
-      - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
-      - "${artifact}"
-
-notarize:
-  macos:
-    - enabled: '{{ isSet .Env.AC_API_KEY }}'
-      sign:
-        certificate: "{{ .Env.AC_CERTIFICATE }}"
-        password: "{{ .Env.AC_PASSWORD }}"
-      notarize:
-        key_id: "{{ .Env.AC_API_KEY_ID }}"
-        key: "{{ .Env.AC_API_KEY_ISSUER }}"
-        wait: true
 
 brews:
   -
