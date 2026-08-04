@@ -87,7 +87,7 @@ func (o *checkOptions) connection() connectionOptions {
 // commands previously repeated all eleven declarations verbatim.
 func registerConnectionFlags(flags *pflag.FlagSet, c connectionOptions) {
 	flags.StringVar(c.bootstrapServer, "bootstrap-server", "", "Kafka bootstrap server(s) (host:port, comma-separated)")
-	flags.StringVar(c.authMechanism, "auth-mechanism", "", "SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)")
+	flags.StringVar(c.authMechanism, "auth-mechanism", "", "SASL mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, AWS_MSK_IAM)")
 	flags.StringVar(c.username, "username", "", "SASL username")
 	flags.StringVar(c.password, "password", "", "SASL password")
 	flags.BoolVar(c.tlsEnabled, "tls", false, "Enable TLS")
