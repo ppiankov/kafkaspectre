@@ -3,6 +3,7 @@ module github.com/ppiankov/kafkaspectre
 go 1.25.4
 
 require (
+	github.com/aws/aws-sdk-go-v2/config v1.32.34
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	github.com/twmb/franz-go v1.20.5
@@ -11,7 +12,6 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.43.3 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.32.34 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.33 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.34 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.34 // indirect
