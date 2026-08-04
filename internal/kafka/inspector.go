@@ -12,8 +12,10 @@ import (
 	"sync"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/aws"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
@@ -484,6 +486,29 @@ func buildSASL(cfg Config) (kgo.Opt, error) {
 			User: cfg.Username,
 			Pass: cfg.Password,
 		}.AsSha512Mechanism()
+		return kgo.SASL(mechanism), nil
+
+	// WO-58: AWS MSK IAM auth via SASL/OAUTHBEARER
+	case "AWS_MSK_IAM":
+		// WO-58: AWS MSK IAM auth via SASL/OAUTHBEARER. Credentials are
+		// resolved from the standard AWS SDK chain (env vars, profile,
+		// instance role) so no --username/--password is needed.
+		mechanism := aws.ManagedStreamingIAM(func(ctx context.Context) (aws.Auth, error) {
+			awscfg, err := awsconfig.LoadDefaultConfig(ctx)
+			if err != nil {
+				return aws.Auth{}, fmt.Errorf("load AWS config: %w", err)
+			}
+			creds, err := awscfg.Credentials.Retrieve(ctx)
+			if err != nil {
+				return aws.Auth{}, fmt.Errorf("retrieve AWS credentials: %w", err)
+			}
+			return aws.Auth{
+				AccessKey:    creds.AccessKeyID,
+				SecretKey:    creds.SecretAccessKey,
+				SessionToken: creds.SessionToken,
+				UserAgent:    "kafkaspectre",
+			}, nil
+		})
 		return kgo.SASL(mechanism), nil
 
 	default:
