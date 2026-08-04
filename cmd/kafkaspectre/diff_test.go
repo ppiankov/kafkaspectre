@@ -1,13 +1,15 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ppiankov/kafkaspectre/internal/kafka"
 )
 
-// WO-60: topics in A but not in B are listed factually.
-func TestCompareTopicsOnlyInA(t *testing.T) {
+// WO-60/killgate: topic only in A is observed with ObservedInA=true, ObservedInB=false.
+// No directional bucket — the consumer derives absence.
+func TestBuildTopicObservationsOnlyInA(t *testing.T) {
 	topicsA := map[string]*kafka.TopicInfo{
 		"shared": {Name: "shared", Partitions: 3, ReplicationFactor: 2},
 		"only-a": {Name: "only-a", Partitions: 1, ReplicationFactor: 1},
@@ -16,38 +18,47 @@ func TestCompareTopicsOnlyInA(t *testing.T) {
 		"shared": {Name: "shared", Partitions: 3, ReplicationFactor: 2},
 	}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, false)
+	obs := buildTopicObservations(topicsA, topicsB, false)
 
-	if len(result.TopicsPresentInANotB) != 1 {
-		t.Fatalf("expected 1 topic only in A, got %d", len(result.TopicsPresentInANotB))
+	if len(obs) != 2 {
+		t.Fatalf("expected 2 observations, got %d", len(obs))
 	}
-	if result.TopicsPresentInANotB[0].Name != "only-a" {
-		t.Errorf("only-in-A topic = %q, want only-a", result.TopicsPresentInANotB[0].Name)
+
+	byName := map[string]TopicObservation{}
+	for _, o := range obs {
+		byName[o.Name] = o
+	}
+
+	if !byName["only-a"].ObservedInA || byName["only-a"].ObservedInB {
+		t.Errorf("only-a: ObservedInA=%v ObservedInB=%v, want true/false", byName["only-a"].ObservedInA, byName["only-a"].ObservedInB)
+	}
+	if !byName["shared"].ObservedInA || !byName["shared"].ObservedInB {
+		t.Errorf("shared: ObservedInA=%v ObservedInB=%v, want true/true", byName["shared"].ObservedInA, byName["shared"].ObservedInB)
 	}
 }
 
-// WO-60: topics in B but not in A.
-func TestCompareTopicsOnlyInB(t *testing.T) {
-	topicsA := map[string]*kafka.TopicInfo{
-		"shared": {Name: "shared", Partitions: 3, ReplicationFactor: 2},
-	}
+// WO-60/killgate: topic only in B.
+func TestBuildTopicObservationsOnlyInB(t *testing.T) {
+	topicsA := map[string]*kafka.TopicInfo{}
 	topicsB := map[string]*kafka.TopicInfo{
-		"shared": {Name: "shared", Partitions: 3, ReplicationFactor: 2},
 		"only-b": {Name: "only-b", Partitions: 6, ReplicationFactor: 3},
 	}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, false)
+	obs := buildTopicObservations(topicsA, topicsB, false)
 
-	if len(result.TopicsPresentInBNotA) != 1 {
-		t.Fatalf("expected 1 topic only in B, got %d", len(result.TopicsPresentInBNotA))
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(obs))
 	}
-	if result.TopicsPresentInBNotA[0].Name != "only-b" {
-		t.Errorf("only-in-B topic = %q, want only-b", result.TopicsPresentInBNotA[0].Name)
+	if obs[0].ObservedInA || !obs[0].ObservedInB {
+		t.Errorf("only-b: ObservedInA=%v ObservedInB=%v, want false/true", obs[0].ObservedInA, obs[0].ObservedInB)
+	}
+	if obs[0].PartitionsB != 6 {
+		t.Errorf("PartitionsB = %d, want 6", obs[0].PartitionsB)
 	}
 }
 
-// WO-60: config mismatch detected for topics in both.
-func TestCompareTopicsConfigMismatch(t *testing.T) {
+// WO-60/killgate: topic in both with different topology — per-cluster fields exposed, no "mismatch" label.
+func TestBuildTopicObservationsDifferentTopology(t *testing.T) {
 	topicsA := map[string]*kafka.TopicInfo{
 		"drift": {Name: "drift", Partitions: 3, ReplicationFactor: 2},
 	}
@@ -55,22 +66,22 @@ func TestCompareTopicsConfigMismatch(t *testing.T) {
 		"drift": {Name: "drift", Partitions: 6, ReplicationFactor: 3},
 	}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, false)
+	obs := buildTopicObservations(topicsA, topicsB, false)
 
-	if len(result.ConfigMismatches) != 1 {
-		t.Fatalf("expected 1 config mismatch, got %d", len(result.ConfigMismatches))
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(obs))
 	}
-	m := result.ConfigMismatches[0]
-	if m.PartitionsA != 3 || m.PartitionsB != 6 {
-		t.Errorf("partitions A=%d B=%d, want 3 and 6", m.PartitionsA, m.PartitionsB)
+	o := obs[0]
+	if o.PartitionsA != 3 || o.PartitionsB != 6 {
+		t.Errorf("PartitionsA=%d PartitionsB=%d, want 3/6", o.PartitionsA, o.PartitionsB)
 	}
-	if m.ReplicationFactorA != 2 || m.ReplicationFactorB != 3 {
-		t.Errorf("RF A=%d B=%d, want 2 and 3", m.ReplicationFactorA, m.ReplicationFactorB)
+	if o.ReplicationFactorA != 2 || o.ReplicationFactorB != 3 {
+		t.Errorf("RFA=%d RFB=%d, want 2/3", o.ReplicationFactorA, o.ReplicationFactorB)
 	}
 }
 
-// WO-60: identical topics counted as in-both.
-func TestCompareTopicsIdentical(t *testing.T) {
+// WO-60/killgate: topic in both with identical topology.
+func TestBuildTopicObservationsIdentical(t *testing.T) {
 	topicsA := map[string]*kafka.TopicInfo{
 		"same": {Name: "same", Partitions: 3, ReplicationFactor: 2},
 	}
@@ -78,18 +89,18 @@ func TestCompareTopicsIdentical(t *testing.T) {
 		"same": {Name: "same", Partitions: 3, ReplicationFactor: 2},
 	}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, false)
+	obs := buildTopicObservations(topicsA, topicsB, false)
 
-	if result.TopicsInBoth != 1 {
-		t.Fatalf("topics_in_both = %d, want 1", result.TopicsInBoth)
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(obs))
 	}
-	if len(result.ConfigMismatches) != 0 {
-		t.Errorf("expected 0 mismatches, got %d", len(result.ConfigMismatches))
+	if obs[0].PartitionsA != obs[0].PartitionsB {
+		t.Errorf("partitions differ: A=%d B=%d", obs[0].PartitionsA, obs[0].PartitionsB)
 	}
 }
 
-// WO-60: internal topics excluded by default.
-func TestCompareTopicsExcludeInternal(t *testing.T) {
+// WO-60/killgate: internal topics excluded by default.
+func TestBuildTopicObservationsExcludeInternal(t *testing.T) {
 	topicsA := map[string]*kafka.TopicInfo{
 		"__consumer_offsets": {Name: "__consumer_offsets", Partitions: 50, ReplicationFactor: 3, Internal: true},
 		"app-topic":          {Name: "app-topic", Partitions: 3, ReplicationFactor: 2},
@@ -98,70 +109,73 @@ func TestCompareTopicsExcludeInternal(t *testing.T) {
 		"app-topic": {Name: "app-topic", Partitions: 3, ReplicationFactor: 2},
 	}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, true)
+	obs := buildTopicObservations(topicsA, topicsB, true)
 
-	if len(result.TopicsPresentInANotB) != 0 {
-		t.Fatalf("internal topics should be excluded, got %d in A-not-B", len(result.TopicsPresentInANotB))
+	for _, o := range obs {
+		if o.Internal {
+			t.Errorf("internal topic %q should be excluded", o.Name)
+		}
+	}
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 non-internal observation, got %d", len(obs))
 	}
 }
 
-// WO-60: internal topics included when excludeInternal=false.
-func TestCompareTopicsIncludeInternal(t *testing.T) {
+// WO-60/killgate: internal topics included when excludeInternal=false.
+func TestBuildTopicObservationsIncludeInternal(t *testing.T) {
 	topicsA := map[string]*kafka.TopicInfo{
 		"__consumer_offsets": {Name: "__consumer_offsets", Partitions: 50, ReplicationFactor: 3, Internal: true},
 	}
 	topicsB := map[string]*kafka.TopicInfo{}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, false)
+	obs := buildTopicObservations(topicsA, topicsB, false)
 
-	if len(result.TopicsPresentInANotB) != 1 {
-		t.Fatalf("expected 1 internal topic in A-not-B, got %d", len(result.TopicsPresentInANotB))
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 observation including internal, got %d", len(obs))
+	}
+	if !obs[0].Internal {
+		t.Error("internal flag should be true for __consumer_offsets")
 	}
 }
 
-// WO-60: evidence note is always present.
-func TestCompareTopicsHasEvidenceNote(t *testing.T) {
-	result := compareTopics("a:9092", "b:9092", map[string]*kafka.TopicInfo{}, map[string]*kafka.TopicInfo{}, true)
-
-	if result.Note == "" {
-		t.Fatal("evidence note should not be empty")
-	}
-	if !contains(result.Note, "factual") {
-		t.Error("note should mention 'factual observations'")
-	}
-}
-
-// WO-60: results are sorted by name.
-func TestCompareTopicsSorted(t *testing.T) {
+// WO-60/killgate: observations sorted by name.
+func TestBuildTopicObservationsSorted(t *testing.T) {
 	topicsA := map[string]*kafka.TopicInfo{
 		"zebra": {Name: "zebra", Partitions: 1, ReplicationFactor: 1},
 		"apple": {Name: "apple", Partitions: 1, ReplicationFactor: 1},
 		"mango": {Name: "mango", Partitions: 1, ReplicationFactor: 1},
 	}
-	topicsB := map[string]*kafka.TopicInfo{}
 
-	result := compareTopics("a:9092", "b:9092", topicsA, topicsB, false)
+	obs := buildTopicObservations(topicsA, map[string]*kafka.TopicInfo{}, false)
 
-	if len(result.TopicsPresentInANotB) != 3 {
-		t.Fatalf("expected 3 topics, got %d", len(result.TopicsPresentInANotB))
+	if len(obs) != 3 {
+		t.Fatalf("expected 3 observations, got %d", len(obs))
 	}
-	if result.TopicsPresentInANotB[0].Name != "apple" {
-		t.Errorf("first topic = %q, want apple (sorted)", result.TopicsPresentInANotB[0].Name)
+	if obs[0].Name != "apple" {
+		t.Errorf("first = %q, want apple", obs[0].Name)
 	}
-	if result.TopicsPresentInANotB[2].Name != "zebra" {
-		t.Errorf("last topic = %q, want zebra (sorted)", result.TopicsPresentInANotB[2].Name)
+	if obs[2].Name != "zebra" {
+		t.Errorf("last = %q, want zebra", obs[2].Name)
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsStr(s, substr))
-}
+// WO-60/killgate: Reliability records per-cluster read failures.
+func TestRunDiffClusterFailureRecorded(t *testing.T) {
+	result := runDiff(
+		context.Background(),
+		"unreachable:9999",
+		"also-unreachable:9999",
+		"", "",
+		false, false, true,
+	)
 
-func containsStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+	if result.Reliability.ClusterAComplete {
+		t.Error("cluster A should be marked incomplete on failure")
 	}
-	return false
+	if result.Reliability.ClusterBComplete {
+		t.Error("cluster B should be marked incomplete on failure")
+	}
+	if len(result.Reliability.ReadErrors) != 2 {
+		t.Fatalf("expected 2 read errors, got %d", len(result.Reliability.ReadErrors))
+	}
 }
